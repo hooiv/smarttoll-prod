@@ -2,11 +2,11 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Tell uvicorn where to find the app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     LOG_LEVEL=INFO \
-    # Tell uvicorn where to find the app
-    APP_MODULE="app.main:app"
+    APP_MODULE=app.main:app
 
 # Install system dependencies if needed
 # RUN apt-get update && apt-get install -y --no-install-recommends build-essential libpq-dev && rm -rf /var/lib/apt/lists/*
