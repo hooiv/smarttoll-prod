@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ./app /app/app
 COPY alembic.ini .
-COPY alembic ./alembic # Copy migration environment
+COPY alembic/ ./alembic/ # Copy migration environment
 
 # Expose the port the app runs on (defined by BIND_PORT env var, default 8000)
 EXPOSE 8000
