@@ -140,3 +140,21 @@ def close_db_pool():
                 _db_pool = None
             except Exception:
                 log.exception("Error closing PostgreSQL connection pool.")
+
+def init_db_schema():
+    """
+    Initializes the required database schema for toll_processor, ensuring PostGIS and toll_zones table exist.
+    """
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Ensure PostGIS extension
+            cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+            # Create toll_zones table if missing
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS toll_zones (
+                    zone_id VARCHAR PRIMARY KEY,
+                    zone_name TEXT NOT NULL,
+                    rate_per_km NUMERIC NOT NULL,
+                    geom geometry(POLYGON,4326) NOT NULL
+                );
+            """)
