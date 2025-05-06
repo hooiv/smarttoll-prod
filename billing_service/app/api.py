@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 
 from app import database, models, kafka_client, consumer # Relative imports
-from app.api import router
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["Billing"]) # Add prefix and tags
