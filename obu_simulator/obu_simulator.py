@@ -10,7 +10,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from kafka import KafkaProducer
-from kafka.errors import KafkaError, NoBrokersAvailableError
+from kafka.errors import KafkaError, NoBrokersAvailable
 
 # --- Setup ---
 # Load .env file variables into environment
@@ -64,7 +64,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
         )
         logger.info("Kafka producer initialized successfully.")
         return producer
-    except NoBrokersAvailableError as e:
+    except NoBrokersAvailable as e:
         logger.error(f"Kafka producer init failed: No brokers available at {KAFKA_BROKER}. {e}")
         producer = None
         raise
