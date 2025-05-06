@@ -9,3 +9,9 @@ python-json-logger>=2.0.7
 python-dotenv>=1.0.0
 alembic>=1.10.3 # For database migrations
 # httpx>=0.24.0 # If calling real external payment APIs asynchronously
+
+# Monitoring instrumentation
+prometheus-fastapi-instrumentator>=6.0.0
+# Security dependencies for API auth
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
