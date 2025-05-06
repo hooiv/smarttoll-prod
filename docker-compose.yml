@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Define environment variables from .env file for substitution below
 # Note: Service-specific env vars are better set in their 'environment' or 'env_file' sections
 # x-variables: &env_vars
