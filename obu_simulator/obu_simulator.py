@@ -28,7 +28,7 @@ logger = logging.getLogger("OBUSimulator")
 
 # --- Configuration ---
 # Get config from environment variables, with defaults
-KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:29092") # Use internal listener by default
+KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "localhost:9092") # Use internal listener by default
 GPS_TOPIC = os.environ.get("GPS_TOPIC", "smarttoll.gps.raw.v1")
 DEVICE_ID = os.environ.get("SIM_DEVICE_ID", "OBU_SIM_DEFAULT")
 VEHICLE_ID = os.environ.get("SIM_VEHICLE_ID", "VEH_SIM_DEFAULT")
