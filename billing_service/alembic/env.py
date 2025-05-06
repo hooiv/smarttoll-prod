@@ -27,6 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.database import Base # Import your Base from the app
 from app.config import settings # Import settings to potentially get DB URL
 
+# Override sqlalchemy.url from alembic.ini with application setting
+config.set_main_option('sqlalchemy.url', str(settings.DATABASE_URL))
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
