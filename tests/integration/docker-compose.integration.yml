@@ -44,3 +44,49 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  obu_simulator:
+    build:
+      context: ../../obu_simulator
+    container_name: test_obu_simulator
+    environment:
+      KAFKA_BROKER: localhost:9093
+      PYTHONUNBUFFERED: 1
+      LOG_LEVEL: DEBUG
+    depends_on:
+      - kafka
+    networks:
+      - default
+    restart: unless-stopped
+
+  toll_processor:
+    build:
+      context: ../../toll_processor
+      dockerfile: Dockerfile
+    container_name: test_toll_processor
+    environment:
+      KAFKA_BROKER: localhost:9093
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      - kafka
+    networks:
+      - default
+    restart: unless-stopped
+
+  billing_service:
+    build:
+      context: ../../billing_service
+      dockerfile: Dockerfile
+    container_name: test_billing_service
+    environment:
+      KAFKA_BROKER: localhost:9093
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      - kafka
+    networks:
+      - default
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
