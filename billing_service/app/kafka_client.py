@@ -6,7 +6,7 @@ import threading
 from typing import Optional, Dict, Any
 
 from kafka import KafkaProducer, KafkaConsumer # Consumer also needed here
-from kafka.errors import KafkaError, NoBrokersAvailableError
+from kafka.errors import KafkaError, NoBrokersAvailable
 
 from app.config import settings
 # Import specific models if needed, or just handle dicts
@@ -36,7 +36,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
-    except NoBrokersAvailableError as e:
+    except NoBrokersAvailable as e:
         log.error(f"Kafka producer initialization failed: No brokers available at {settings.KAFKA_BROKER}. {e}")
         _producer = None
         raise
@@ -116,7 +116,7 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
         )
         log.info("Kafka consumer initialized successfully.")
         return _consumer
-    except NoBrokersAvailableError as e:
+    except NoBrokersAvailable as e:
         log.error(f"Kafka consumer initialization failed: No brokers available at {settings.KAFKA_BROKER}. {e}")
         _consumer = None
         raise
