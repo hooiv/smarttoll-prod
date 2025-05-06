@@ -226,6 +226,76 @@ SmartToll can run at zero cost by combining Fly.io’s free tier with free manag
 
 You can also use Railway.app, Render.com or other free-tier hosts—just adjust the steps above to their CLI and secrets/config UI.
 
+---
+
+## Architecture Diagram
+
+Below is a high-level architecture diagram of the SmartToll system:
+
+```
++----------------+      +----------------+      +-------------------+
+|  OBU Simulator | ---> |  Kafka Broker  | ---> |   Toll Processor  |
++----------------+      +----------------+      +-------------------+
+                                                    |
+                                                    v
+                                         +-------------------+
+                                         |   Redis Cache     |
+                                         +-------------------+
+                                                    |
+                                                    v
+                                         +-------------------+
+                                         | Postgres+PostGIS  |
+                                         +-------------------+
+                                                    |
+                                                    v
+                                         +-------------------+
+                                         | Billing Service   |
+                                         +-------------------+
+```
+
+---
+
+## API Documentation
+
+The Billing Service exposes a REST API documented with OpenAPI/Swagger. Once the service is running, you can access the interactive API docs at:
+
+- Swagger UI: [http://localhost:8001/docs](http://localhost:8001/docs)
+- ReDoc: [http://localhost:8001/redoc](http://localhost:8001/redoc)
+
+### Example Endpoints
+- `GET /api/v1/health/live` — Liveness probe
+- `GET /api/v1/health/ready` — Readiness probe
+- `GET /api/v1/transactions/status/{toll_event_id}` — Get billing transaction status
+
+The API is protected by an API key (see `SERVICE_API_KEY` in your environment variables). Pass it in the `X-API-KEY` header.
+
+---
+
+## Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repository and clone your fork.
+2. Create a new branch for your feature or bugfix.
+3. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+4. Run tests locally before submitting a PR:
+   ```bash
+   pytest
+   ```
+5. Ensure your code follows PEP8 and includes docstrings and type hints where appropriate.
+6. Open a pull request with a clear description of your changes.
+
+---
+
+## Contact & Support
+
+For questions, issues, or feature requests, please open an issue on GitHub or contact the maintainer.
+
+---
+
 ## Service Details
 
 ### OBU Simulator
