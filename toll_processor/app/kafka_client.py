@@ -5,7 +5,7 @@ import threading
 from typing import Optional, Any, Dict
 
 from kafka import KafkaConsumer, KafkaProducer
-from kafka.errors import KafkaError, NoBrokersAvailableError
+from kafka.errors import KafkaError, NoBrokersAvailable
 
 from app.config import settings
 from app.models import ErrorMessage # Import error model
@@ -43,7 +43,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
-    except NoBrokersAvailableError as e:
+    except NoBrokersAvailable as e:
         log.error(f"Kafka producer initialization failed: No brokers available at {settings.KAFKA_BROKER}. {e}")
         _producer = None
         raise # Re-raise critical error
@@ -160,7 +160,7 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
         # partitions = _consumer.partitions_for_topic(settings.GPS_TOPIC)
         # log.info(f"Partitions assigned for topic {settings.GPS_TOPIC}: {partitions}")
         return _consumer
-    except NoBrokersAvailableError as e:
+    except NoBrokersAvailable as e:
         log.error(f"Kafka consumer initialization failed: No brokers available at {settings.KAFKA_BROKER}. {e}")
         _consumer = None
         raise
