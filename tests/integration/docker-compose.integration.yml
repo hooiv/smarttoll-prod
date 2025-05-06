@@ -19,10 +19,15 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://test_kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
 
   redis:
     image: redis:7.0-alpine
@@ -50,11 +55,12 @@ services:
       context: ../../obu_simulator
     container_name: test_obu_simulator
     environment:
-      KAFKA_BROKER: localhost:9093
+      KAFKA_BROKER: test_kafka:9092
       PYTHONUNBUFFERED: 1
       LOG_LEVEL: DEBUG
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     networks:
       - default
     restart: unless-stopped
@@ -65,10 +71,11 @@ services:
       dockerfile: Dockerfile
     container_name: test_toll_processor
     environment:
-      KAFKA_BROKER: localhost:9093
+      KAFKA_BROKER: test_kafka:9092
       PYTHONUNBUFFERED: 1
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     networks:
       - default
     restart: unless-stopped
@@ -79,10 +86,11 @@ services:
       dockerfile: Dockerfile
     container_name: test_billing_service
     environment:
-      KAFKA_BROKER: localhost:9093
+      KAFKA_BROKER: test_kafka:9092
       PYTHONUNBUFFERED: 1
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     networks:
       - default
     restart: unless-stopped
