@@ -12,6 +12,7 @@ from kafka.errors import KafkaError
 from app.config import settings # noqa F401 loads settings
 from app import logging_config # noqa F401 sets up logging
 from app import kafka_client, database, state, processing, health_server
+from app.database import init_db_schema
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ def run_service():
         kafka_client.get_kafka_producer() # Init producer early
         kafka_client.get_kafka_consumer() # Init consumer
         database.get_db_pool()            # Init DB pool
+        init_db_schema()                  # Ensure schema/tables exist
         state.get_redis_client()          # Init Redis client
     except Exception as e:
         log.critical(f"Failed to initialize critical dependencies during startup: {e}", exc_info=True)
