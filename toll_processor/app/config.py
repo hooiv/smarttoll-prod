@@ -1,21 +1,5 @@
 import logging
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
-
-# Determine if we are using Pydantic V1 or V2 style for BaseSettings
-try:
-    # Pydantic V2 style
-    PydanticV2 = True
-    SettingsConfigDictClass = SettingsConfigDict
-except ImportError:
-    # Pydantic V1 style
-    PydanticV2 = False
-    from pydantic import BaseConfig
-    class SettingsConfigDictClass(BaseConfig):
-        env_file = '.env'
-        env_file_encoding = 'utf-8'
-        case_sensitive = False
-        extra = 'ignore'
+from pydantic import BaseSettings, Field
 
 class Settings(BaseSettings):
     """Application configuration settings loaded from environment variables."""
@@ -49,17 +33,12 @@ class Settings(BaseSettings):
     # Processing Configuration
     DISTANCE_CALC_METHOD: str = Field(default="haversine", description="Method for distance calc ('haversine', 'postgis')") # Example setting
 
-    # Pydantic Model Configuration
-    if PydanticV2:
-         model_config = SettingsConfigDictClass(
-            env_file='.env',
-            env_file_encoding='utf-8',
-            case_sensitive=False,
-            extra='ignore'
-         )
-    else: # Pydantic V1 compatibility
-        class Config(SettingsConfigDictClass):
-            pass
+    # Pydantic Model Configuration for V1
+    class Config:
+        env_file = '.env'
+        env_file_encoding = 'utf-8'
+        case_sensitive = False
+        extra = 'ignore'
 
 
 # Create a single instance of the settings to be imported by other modules
@@ -68,6 +47,6 @@ settings = Settings()
 # Log loaded settings (excluding sensitive ones like password) at DEBUG level
 logging.debug("Toll Processor Settings Loaded:")
 # Create a dict representation suitable for logging, masking password
-loggable_settings = settings.model_dump() if PydanticV2 else settings.dict()
+loggable_settings = settings.dict()
 loggable_settings['POSTGRES_PASSWORD'] = '********'
 logging.debug(loggable_settings)
