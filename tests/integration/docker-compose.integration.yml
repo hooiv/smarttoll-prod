@@ -45,9 +45,9 @@ services:
     image: postgis/postgis:15-3.3
     container_name: test_postgres
     environment:
-      POSTGRES_DB: test_smarttoll
-      POSTGRES_USER: test_user
-      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: smarttoll_dev
+      POSTGRES_USER: smarttoll_user
+      POSTGRES_PASSWORD: changeme_in_prod_123!
     ports:
       - "5433:5432"
     healthcheck:
