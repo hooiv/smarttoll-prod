@@ -1,6 +1,7 @@
 import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
+from app.config import settings  # Add missing import
 
 log = logging.getLogger(__name__)
 
