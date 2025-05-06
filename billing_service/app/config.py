@@ -1,20 +1,6 @@
 import logging
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, PostgresDsn, validator
+from pydantic import BaseSettings, Field, PostgresDsn, validator
 from typing import Optional, Any
-
-# Determine Pydantic version
-try:
-    PydanticV2 = True
-    SettingsConfigDictClass = SettingsConfigDict
-except ImportError:
-    PydanticV2 = False
-    from pydantic import BaseConfig
-    class SettingsConfigDictClass(BaseConfig):
-        env_file = '.env'
-        env_file_encoding = 'utf-8'
-        case_sensitive = False
-        extra = 'ignore'
 
 class Settings(BaseSettings):
     """Billing Service configuration settings."""
@@ -60,24 +46,19 @@ class Settings(BaseSettings):
     # Payment Gateway (Mock settings)
     MOCK_PAYMENT_FAIL_RATE: float = Field(default=0.1, ge=0.0, le=1.0, description="Probability (0-1) of mock payment failure")
 
-    # Pydantic Model Configuration
-    if PydanticV2:
-         model_config = SettingsConfigDictClass(
-            env_file='.env',
-            env_file_encoding='utf-8',
-            case_sensitive=False,
-            extra='ignore'
-         )
-    else: # Pydantic V1 compatibility
-        class Config(SettingsConfigDictClass):
-            pass
+    # Pydantic Model Configuration for V1
+    class Config:
+        env_file = '.env'
+        env_file_encoding = 'utf-8'
+        case_sensitive = False
+        extra = 'ignore'
 
 
 settings = Settings()
 
 # Log loaded settings (excluding sensitive ones)
 logging.debug("Billing Service Settings Loaded:")
-loggable_settings = settings.model_dump() if PydanticV2 else settings.dict()
+loggable_settings = settings.dict()
 loggable_settings['POSTGRES_PASSWORD'] = '********'
 if loggable_settings.get('DATABASE_URL'):
     # Basic attempt to mask password in URL string representation
