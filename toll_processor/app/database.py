@@ -158,3 +158,5 @@ def init_db_schema():
                     geom geometry(POLYGON,4326) NOT NULL
                 );
             """)
+        # Commit DDL changes so they persist
+        conn.commit()
