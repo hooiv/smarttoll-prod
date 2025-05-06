@@ -15,18 +15,13 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - smarttoll_net
-    healthcheck:
-      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.3.0
     container_name: smarttoll_kafka
     depends_on:
       zookeeper:
-        condition: service_healthy
+        condition: service_started
     ports:
       # Port for clients outside docker network (your machine)
       - "9092:9092"
