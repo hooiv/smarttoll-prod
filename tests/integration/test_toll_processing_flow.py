@@ -72,6 +72,31 @@ def db_conn():
     conn.autocommit = False
     with conn.cursor() as cur:
         cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+        # Ensure required tables exist for integration tests
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS billing_transactions (
+                id SERIAL PRIMARY KEY,
+                toll_event_id VARCHAR NOT NULL UNIQUE,
+                vehicle_id VARCHAR NOT NULL,
+                amount DOUBLE PRECISION NOT NULL,
+                currency VARCHAR(3) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                transaction_time TIMESTAMPTZ DEFAULT now() NOT NULL,
+                last_updated TIMESTAMPTZ DEFAULT now(),
+                payment_gateway_ref VARCHAR,
+                payment_method_details VARCHAR,
+                error_message VARCHAR,
+                retry_count INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS toll_zones (
+                zone_id VARCHAR PRIMARY KEY,
+                zone_name VARCHAR,
+                rate_per_km DOUBLE PRECISION,
+                geom geometry
+            );
+        """)
         cur.execute("TRUNCATE billing_transactions RESTART IDENTITY CASCADE;")
         cur.execute("DELETE FROM toll_zones;")
         cur.execute("INSERT INTO toll_zones(zone_id, zone_name, rate_per_km, geom) VALUES (%s,%s,%s, ST_GeomFromEWKT(%s))", 
