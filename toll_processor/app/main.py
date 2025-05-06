@@ -11,7 +11,7 @@ from kafka.errors import KafkaError
 # These imports trigger the setup in their respective modules
 from app.config import settings # noqa F401 loads settings
 from app import logging_config # noqa F401 sets up logging
-from app import kafka_client, database, state, processing
+from app import kafka_client, database, state, processing, health_server
 
 log = logging.getLogger(__name__)
 
@@ -155,6 +155,8 @@ def run_service():
         sys.exit(1) # Exit if essential services can't be reached
 
     log.info("Dependencies initialized. Starting consumer thread...")
+    health_server.start_health_server()
+
     # Use ThreadPoolExecutor to easily get exceptions from the thread
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="KafkaConsumerThread")
     consumer_future = executor.submit(main_consumer_loop)
@@ -196,6 +198,7 @@ def run_service():
          executor.shutdown(wait=False) # Shutdown executor
 
          # Close resources
+         health_server.stop_health_server()
          kafka_client.close_kafka_consumer()
          kafka_client.close_kafka_producer()
          database.close_db_pool()
