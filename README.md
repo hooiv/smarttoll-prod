@@ -18,30 +18,108 @@ SmartToll consists of three main components:
 - **API**: FastAPI (Billing Service)
 - **Container Orchestration**: Docker Compose
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
+- Python 3.9+ installed
+- Docker & Docker Compose (v1.29+)
+- Access to Kafka, Zookeeper, Redis, and Postgres (local via Compose or remote)
 
-- Docker and Docker Compose
-- Git
+## Environment Variables
 
-### Running the System
+Create `.env` files in each service directory (`billing_service/` and `toll_processor/`) with:
 
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/smarttoll-prod-blueprint.git
-cd smarttoll-prod-blueprint
+```
+# Common settings
+BIND_HOST=0.0.0.0
+BIND_PORT=8001
+LOG_LEVEL=INFO
+
+# Kafka
+KAFKA_BOOTSTRAP_SERVERS=localhost:9093
+TOLL_EVENT_TOPIC=smarttoll.toll.events.v1
+GPS_TOPIC=smarttoll.gps.raw.v1
+PAYMENT_TOPIC=smarttoll.payment.events.v1
+
+# Postgres
+DB_HOST=localhost
+DB_PORT=5433
+DB_NAME=test_smarttoll
+DB_USER=test_user
+DB_PASSWORD=test_password
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6380
+
+# API Auth (billing_service only)
+SERVICE_API_KEY=supersecretapikey123
 ```
 
-2. Start the services:
+## Getting Started
+
+### Running Locally (Development)
+
+1. In one terminal, start infrastructure:
+   ```bash
+   docker-compose -f tests/integration/docker-compose.integration.yml up -d
+   ```
+2. Install Python dependencies:
+   ```bash
+   cd billing_service
+   pip install -r requirements.txt -r requirements-dev.txt
+   cd ../toll_processor
+   pip install -r requirements.txt -r requirements-dev.txt
+   ```
+3. Start services:
+   - Billing Service:
+     ```bash
+     cd billing_service
+     uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+     ```
+   - Toll Processor:
+     ```bash
+     cd toll_processor
+     python -m app.main
+     ```
+4. Verify health and metrics:
+   - Toll Processor liveness: `http://localhost:8080/health/live`
+   - Toll Processor readiness: `http://localhost:8080/health/ready`
+   - Toll Processor metrics: `http://localhost:8081/`
+   - Billing Service liveness: `http://localhost:8001/api/v1/health/live`
+   - Billing Service readiness: `http://localhost:8001/api/v1/health/ready`
+
+### Running Integration Tests
+
+From the project root:
 ```bash
+pip install -r requirements-dev.txt
+pytest
+```
+Pytest will spin up the test Compose stack automatically via `pytest.ini` and `pytest-docker`.
+
+### Docker Compose (Production)
+
+A top-level `docker-compose.yml` is provided. To build and run:
+
+```bash
+docker-compose build billing_service toll_processor
 docker-compose up -d
 ```
 
-3. Monitor the logs:
-```bash
-docker-compose logs -f
-```
+Services will be available on ports 8001 (billing) and 8080/8081 (toll processor).
+
+### Deploying to Production
+
+1. Push images to your container registry:
+   ```bash
+   docker tag billing_service my-registry/billing_service:latest
+   docker push my-registry/billing_service:latest
+   docker tag toll_processor my-registry/toll_processor:latest
+   docker push my-registry/toll_processor:latest
+   ```
+2. Provision infrastructure (Kubernetes/ECS/VM + Compose) with external Kafka/Redis/Postgres instances.
+3. Apply your orchestration manifests or Helm charts; configure liveness/readiness probes on the HTTP endpoints and Prometheus scraping on `/metrics`.
+4. Monitor logs and metrics via Prometheus/Grafana.
 
 ## Service Details
 
