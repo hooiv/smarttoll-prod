@@ -1,12 +1,32 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status as http_status
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from app import database, models # Relative imports
+from app import database, models, kafka_client, consumer # Relative imports
+from app.api import router
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["Billing"]) # Add prefix and tags
+
+# New: Health and readiness dependency
+async def check_dependencies():
+    try:
+        with database.get_db_session() as db:
+            db.execute(text("SELECT 1"))
+    except Exception as e:
+        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection failed")
+    if not consumer.consumer_ready.is_set():
+        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kafka consumer not ready")
+
+# Health endpoints
+@router.get("/health/live", status_code=http_status.HTTP_200_OK, tags=["Health"])
+async def liveness_check():
+    return {"status":"live"}
+
+@router.get("/health/ready", status_code=http_status.HTTP_200_OK, tags=["Health"])
+async def readiness_check(_: None = Depends(check_dependencies)):
+    return {"status":"ready"}
 
 @router.get("/health")
 async def health_check():
