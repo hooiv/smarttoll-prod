@@ -33,26 +33,38 @@ async def startup_event():
     log.info("Billing Service starting up...")
 
     # Initialize Kafka Producer first (needed by billing logic)
-    # Corrected: Call the initialization function from the kafka_client module
     kafka_client.get_kafka_producer() # Use the getter which handles initialization
 
-    # Optional: Run DB migrations here or as a separate step/job
-    # log.info("Running database migrations...")
-    # run_migrations() # Placeholder for Alembic command execution
-
-    # Start the Kafka consumer in the background
     log.info("Starting Kafka consumer task...")
-    # Pass the session factory, not a single session
     consumer_task = asyncio.create_task(consumer.consume_loop(database.SessionLocal, consumer_ready))
+    log.info(f"Consumer task created: {consumer_task}")
 
-    # Optional: Wait briefly for consumer to signal readiness before accepting requests?
     try:
+        log.info("Attempting to wait for consumer_ready event...")
+        log.info(f"State of consumer_ready event BEFORE wait: is_set={consumer_ready.is_set()}") # New log
         await asyncio.wait_for(consumer_ready.wait(), timeout=30.0)
-        log.info("Consumer task reported ready.")
+        log.info("Consumer task reported ready via event. (Await completed)") # Modified log
     except asyncio.TimeoutError:
-         log.warning("Consumer task did not report ready within timeout.")
-         # Proceed anyway, but health checks might fail initially
+         log.warning("Consumer task did not report ready via event within 30s timeout. (Await timed out)") # Modified log
+    except Exception as e: # Broader exception catch
+         log.exception(f"An unexpected error occurred while waiting for consumer_ready event: {e} (Await raised exception)") # Modified log
+    finally: # Added finally block
+        log.info(f"FINALLY block: consumer_ready event status after wait attempt: is_set={consumer_ready.is_set()}") # Modified log
+        if consumer_task: # Check if task exists
+            log.info(f"FINALLY block: Consumer task state: done={consumer_task.done()}, cancelled={consumer_task.cancelled()}")
+            if consumer_task.done() and not consumer_task.cancelled():
+                try:
+                    task_exception = consumer_task.exception()
+                    if task_exception:
+                        log.error(f"FINALLY block: Consumer task raised an exception: {task_exception}", exc_info=task_exception)
+                    else:
+                        log.info("FINALLY block: Consumer task completed without raising an exception (that was caught by .exception()).")
+                except asyncio.InvalidStateError:
+                    log.warning("FINALLY block: Consumer task .exception() called on non-done task (should not happen if task.done() is true).")
+                except Exception as e_task_exc:
+                    log.error(f"FINALLY block: Error when trying to get consumer_task.exception(): {e_task_exc}")
 
+    log.info("Startup sequence in main.py proceeding past consumer ready check.")
     log.info("Startup complete. Service ready to process requests and events.")
 
 @app.on_event("shutdown")

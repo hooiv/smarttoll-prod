@@ -10,54 +10,51 @@ from app import models, billing, kafka_client, database # Relative imports
 
 log = logging.getLogger(__name__)
 
-async def consume_loop(db_session_factory: sessionmaker, consumer_ready_event: asyncio.Event):
-    """The main Kafka consumer loop run as an asyncio task."""
-    consumer = None
-    while consumer is None and not consumer_ready_event.is_set(): # Keep trying until ready or cancelled
-        try:
-            consumer = kafka_client.get_kafka_consumer() # Initialize/get consumer
-            if consumer:
-                consumer_ready_event.set() # Signal that consumer is ready
-                log.info("Kafka consumer is ready.")
-            else:
-                await asyncio.sleep(5) # Wait before retrying init
-        except Exception as e:
-             log.error(f"Consumer initialization attempt failed: {e}. Retrying...")
-             await asyncio.sleep(5)
-
-    if not consumer:
-        log.critical("Failed to initialize Kafka consumer after retries. Exiting consumer loop.")
-        return # Exit if consumer could not be initialized
-
-    log.info(f"Starting consumption from topic '{settings.TOLL_EVENT_TOPIC}'...")
+async def consume_loop(db_session_factory: sessionmaker, ready_event: asyncio.Event):
+    log.info("Consumer loop starting...")
+    consumer_client = None
     try:
-        while True: # Main consumption loop
+        # Get initialized consumer
+        consumer_client = kafka_client.get_kafka_consumer() # This will retry
+        if not consumer_client:
+            log.error("Failed to get Kafka consumer after multiple retries. Exiting consume_loop.")
+            # DO NOT set ready_event here if consumer failed
+            return
+
+        log.info("Kafka consumer is ready.")
+        ready_event.set()
+        log.info(f"consumer_ready event SET in consumer.py. is_set: {ready_event.is_set()}") # New log
+
+        log.info(f"Starting consumption from topic '{settings.TOLL_EVENT_TOPIC}'...")
+        while True:
             try:
-                # Use consume() which blocks until messages are available (better than polling with timeout in async)
-                # Note: consume() might block for a long time. Need to handle shutdown gracefully.
-                # A possible pattern is to use poll() with a short timeout in an async loop.
-                # Let's stick to consume() for simplicity here, shutdown handled by task cancellation.
                 log.debug("Waiting for messages...")
-                for message in consumer: # This blocks until messages or timeout/error
-                    log.debug(f"Received message: Offset={message.offset}, Partition={message.partition}, Key={message.key}")
-                    await process_message(message, db_session_factory, consumer)
-
+                for message in consumer_client:
+                    log.info(f"Received message - Topic: {getattr(message, 'topic', None)}, Partition: {getattr(message, 'partition', None)}, Offset: {getattr(message, 'offset', None)}, Key: {getattr(message, 'key', None)}, Value: {getattr(message, 'value', None)}")
+                    await asyncio.sleep(0.01)
             except asyncio.CancelledError:
-                 log.info("Consumer loop cancellation requested.")
-                 break # Exit the loop cleanly on cancellation
-            except Exception as e:
-                 log.exception("Error in Kafka consume loop (outside message processing). Restarting consumption?")
-                 # Potentially represents a deeper issue with the consumer/broker connection.
-                 # Re-initializing consumer might be needed. For now, log and continue loop.
-                 await asyncio.sleep(5) # Backoff before retrying consumption
+                log.info("Consume loop (inner while True) cancelled.")
+                break # Exit the while True loop
+            except Exception as e_loop:
+                log.exception(f"Error in Kafka consumer message processing loop: {e_loop}")
+                # Depending on the error, you might want to break, continue, or implement a backoff
+                await asyncio.sleep(settings.KAFKA_CONSUMER_RETRY_DELAY_S) # Wait before retrying
 
+    except asyncio.CancelledError:
+        log.info("Consumer_loop task was cancelled (outer try).")
     except Exception as e:
-        log.critical(f"Fatal error in consumer task: {e}", exc_info=True)
+        # This catches errors during consumer_client initialization or other setup before the main loop
+        log.exception(f"Unhandled exception in consume_loop (outside main while True): {e}")
     finally:
-        if consumer:
-            log.info("Closing Kafka consumer...")
-            consumer.close() # Close the consumer connection
-            log.info("Kafka consumer closed.")
+        log.info("consume_loop task finishing.")
+        if consumer_client:
+            try:
+                log.info("Stopping Kafka consumer client...")
+                consumer_client.close()
+                log.info("Kafka consumer client stopped.")
+            except Exception as e_stop:
+                log.exception(f"Error stopping Kafka consumer client: {e_stop}")
+        # Do not set ready_event in finally; it's set only on successful init.
 
 async def process_message(message: ConsumerRecord, db_session_factory: sessionmaker, consumer):
     """Processes a single message received from Kafka."""

@@ -146,6 +146,8 @@ services:
       # Define how the API binds inside the container
       BIND_HOST: 0.0.0.0
       BIND_PORT: 8000
+      LOG_LEVEL: DEBUG
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "debug"]
     ports:
       # Map internal port 8000 to host port 8001
       - "8001:8000"

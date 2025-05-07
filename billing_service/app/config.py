@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     TOLL_EVENT_TOPIC: str = Field(default="smarttoll.toll.events.v1")
     BILLING_CONSUMER_GROUP_ID: str = Field(default="billing_service_group_dev_1")
     PAYMENT_EVENT_TOPIC: str = Field(default="smarttoll.payment.events.v1")
+    KAFKA_CONSUMER_RETRY_DELAY_S: float = Field(default=5.0)
 
     # Logging
     LOG_LEVEL: str = Field(default="INFO")
