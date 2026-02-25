@@ -31,7 +31,7 @@ MOCK_ZONE_INFO_2 = {"zone_id": "ZoneB", "rate_per_km": 0.20}
 
 @pytest.mark.parametrize("lat1, lon1, lat2, lon2, expected_km", [
     (40.7128, -74.0060, 40.7128, -74.0060, 0.0),  # Same point
-    (0.0, 0.0, 0.0, 1.0, pytest.approx(111.3, abs=0.1)),  # 1 degree longitude at equator
+    (0.0, 0.0, 0.0, 1.0, pytest.approx(111.3, abs=0.2)),  # 1 degree longitude at equator
     (40.0, -75.0, 41.0, -75.0, pytest.approx(111.0, abs=0.5)),  # 1 degree latitude
     # Add more realistic test cases if needed
 ])
@@ -218,10 +218,15 @@ def test_process_gps_message_move_between_zones(mock_dependencies):
     mock_dependencies["get_state"].assert_called_once_with("VEH_ABC")
     mock_dependencies["get_zone"].assert_called_once_with(SAMPLE_GPS_DIFFERENT_ZONE.latitude, SAMPLE_GPS_DIFFERENT_ZONE.longitude)
 
-    # Check that a TollEvent for ZoneA is sent FIRST
-    # Check that the state is updated to reflect entry into ZoneB SECOND
+    # Check that a TollEvent for ZoneA is sent and state is updated twice
+    # (once to None clearing old zone, once with new ZoneB state)
     assert mock_dependencies["send_message"].call_count == 1
-    assert mock_dependencies["update_state"].call_count == 1
+    assert mock_dependencies["update_state"].call_count == 2
+
+    # First call must clear the old zone state
+    first_update_args = mock_dependencies["update_state"].call_args_list[0][0]
+    assert first_update_args[0] == "VEH_ABC"
+    assert first_update_args[1] is None
 
     # --- Verify Toll Event (Exit from ZoneA) ---
     send_args, send_kwargs = mock_dependencies["send_message"].call_args

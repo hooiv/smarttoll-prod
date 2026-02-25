@@ -24,17 +24,26 @@ SAMPLE_TOLL_EVENT = models.TollEvent(
 
 @pytest.fixture
 def mock_db_session(mocker) -> MagicMock:
-    """Creates a mock SQLAlchemy session."""
+    """Creates a mock SQLAlchemy session.
+
+    The flush side-effect simulates the database assigning an auto-increment
+    primary key to the most-recently-added object, mirroring real ORM behaviour.
+    """
     mock_session = MagicMock(spec=Session)
-    # Mock common methods needed
-    mock_session.query.return_value.filter.return_value.first.return_value = None  # Default: no existing tx
     mock_session.add = MagicMock()
     mock_session.commit = MagicMock()
     mock_session.rollback = MagicMock()
-    mock_session.flush = MagicMock()
-    mock_session.refresh = MagicMock()
-    mock_session.execute.return_value.scalars.return_value.first.return_value = None  # For select() usage
-    mock_session.get.return_value = None  # For db.get() usage
+    mock_session.execute.return_value.scalars.return_value.first.return_value = None
+
+    def _flush_assigns_id():
+        """Simulate DB assigning id=1 to the last added object on flush."""
+        if mock_session.add.call_args_list:
+            obj = mock_session.add.call_args_list[-1][0][0]
+            if getattr(obj, 'id', None) is None:
+                obj.id = 1
+
+    mock_session.flush = MagicMock(side_effect=_flush_assigns_id)
+    mock_session.refresh = MagicMock()  # refresh is a no-op in tests (id already set by flush)
 
     return mock_session
 
@@ -65,41 +74,34 @@ async def test_process_billing_event_success(mock_db_session, mock_payment_gatew
 
     assert success is True
 
-    # 1. Check if existing transaction was checked
-    mock_db_session.execute.assert_called_once()  # Check if select() was executed
+    # 1. Duplicate check was performed
+    mock_db_session.execute.assert_called_once()
 
-    # 2. Check if new transaction was added and committed (PENDING)
+    # 2. Transaction was created: add / flush / refresh / commit cycle
     assert mock_db_session.add.call_count == 1
     added_tx: models.BillingTransaction = mock_db_session.add.call_args[0][0]
     assert added_tx.toll_event_id == SAMPLE_TOLL_EVENT.eventId
-    assert added_tx.status == "PENDING"
     assert added_tx.amount == SAMPLE_TOLL_EVENT.tollAmount
-    # Check commit was called after add (for PENDING status)
-    # Check flush and refresh were called to get ID
     assert mock_db_session.flush.call_count == 1
-    assert mock_db_session.commit.call_count == 3  # PENDING, PROCESSING, FINAL STATUS
     assert mock_db_session.refresh.call_count == 1
+    assert mock_db_session.commit.call_count == 3  # PENDING → PROCESSING → SUCCESS
 
-
-    # 3. Check if payment gateway was called
+    # 3. Payment gateway was called with correct arguments
     mock_payment_gateway.assert_awaited_once()
-    call_args, call_kwargs = mock_payment_gateway.call_args
-    # Assert specific arguments passed to payment gateway
+    _, call_kwargs = mock_payment_gateway.call_args
     assert call_kwargs['toll_event_id'] == SAMPLE_TOLL_EVENT.eventId
     assert call_kwargs['amount'] == SAMPLE_TOLL_EVENT.tollAmount
 
-    # 4. Check if transaction status was updated (to PROCESSING then SUCCESS) and committed
-    # We check the final state by inspecting the object passed to commit or queried later
-    # Let's assume the session manages the object `new_tx` state changes
-    assert added_tx.status == "SUCCESS"  # Final status after successful payment
+    # 4. Transaction object updated to final SUCCESS state
+    assert added_tx.status == "SUCCESS"
     assert added_tx.payment_gateway_ref == "MOCK_GW_REF_SUCCESS"
     assert added_tx.error_message is None
 
-    # 5. Check if payment result was published to Kafka
+    # 5. PaymentResult published to Kafka (value passed as keyword argument)
     assert mock_kafka_producer.send.call_count == 1
-    args, kwargs = mock_kafka_producer.send.call_args
-    assert args[0] == settings.PAYMENT_EVENT_TOPIC
-    payload = args[1]
+    _, send_kwargs = mock_kafka_producer.send.call_args
+    assert mock_kafka_producer.send.call_args[0][0] == settings.PAYMENT_EVENT_TOPIC
+    payload = send_kwargs['value']
     assert payload['eventId'] == SAMPLE_TOLL_EVENT.eventId
     assert payload['status'] == "SUCCESS"
     assert payload['gatewayReference'] == "MOCK_GW_REF_SUCCESS"
@@ -140,33 +142,30 @@ async def test_process_billing_event_duplicate_pending(mock_db_session, mock_pay
 @pytest.mark.asyncio
 async def test_process_billing_event_payment_failure(mock_db_session, mock_payment_gateway, mock_kafka_producer):
     """Test processing when the payment gateway call fails."""
-    # Configure mock payment gateway to fail
     mock_payment_gateway.side_effect = PaymentGatewayError("Card declined", error_code="CARD_DECLINED")
-    # Simulate db.get finding the tx after creation for status update
-    created_tx = models.BillingTransaction(id=1, toll_event_id=SAMPLE_TOLL_EVENT.eventId, status="PENDING")
-    mock_db_session.get.return_value = created_tx  # Make db.get return the object
 
     success = await billing.process_toll_event_for_billing(SAMPLE_TOLL_EVENT, mock_db_session)
 
     assert success is True  # Processing completed, even though payment failed
 
-    # Check tx added, flushed, committed (PENDING)
+    # Transaction created, flushed, refreshed, and committed 3× (PENDING, PROCESSING, FAILED)
     assert mock_db_session.add.call_count == 1
     assert mock_db_session.flush.call_count == 1
-    assert mock_db_session.commit.call_count == 3  # PENDING, PROCESSING, FAILED
+    assert mock_db_session.refresh.call_count == 1
+    assert mock_db_session.commit.call_count == 3
 
-    # Check payment gateway was called
     mock_payment_gateway.assert_awaited_once()
 
-    # Check final status is FAILED and error message is recorded
-    assert created_tx.status == "FAILED"  # Check the object state after commit
-    assert created_tx.payment_gateway_ref is None
-    assert "CARD_DECLINED: Card declined" in created_tx.error_message
+    # The added transaction object itself reflects the final FAILED state
+    added_tx: models.BillingTransaction = mock_db_session.add.call_args[0][0]
+    assert added_tx.status == "FAILED"
+    assert added_tx.payment_gateway_ref is None
+    assert "CARD_DECLINED: Card declined" in added_tx.error_message
 
-    # Check Kafka event published with FAILED status
+    # Kafka event published with FAILED status
     assert mock_kafka_producer.send.call_count == 1
-    args, kwargs = mock_kafka_producer.send.call_args
-    payload = args[1]
+    _, send_kwargs = mock_kafka_producer.send.call_args
+    payload = send_kwargs['value']
     assert payload['status'] == "FAILED"
     assert "CARD_DECLINED" in payload['errorMessage']
 
@@ -186,25 +185,24 @@ async def test_process_billing_event_db_error_on_create(mock_db_session, mock_pa
 
 @pytest.mark.asyncio
 async def test_process_billing_event_db_error_on_update(mock_db_session, mock_payment_gateway, mock_kafka_producer):
-    """Test handling when updating the final status fails after successful payment."""
-    # Simulate successful payment
+    """Test handling when updating the final status fails after successful payment.
+
+    Even when the DB commit fails the payment result MUST still be published to Kafka
+    so downstream consumers stay consistent with the actual payment outcome.
+    """
     mock_payment_gateway.return_value = ("MOCK_GW_REF_SUCCESS", None)
-    # Simulate DB error during the final commit
-    mock_db_session.commit.side_effect = [None, None, SQLAlchemyError("Update failed")]  # Success PENDING, PROCESSING, Fail FINAL
-    # Simulate db.get finding the tx
-    created_tx = models.BillingTransaction(id=1, toll_event_id=SAMPLE_TOLL_EVENT.eventId, status="PROCESSING")
-    mock_db_session.get.return_value = created_tx
+    # First two commits succeed (PENDING, PROCESSING); third (final status) raises
+    mock_db_session.commit.side_effect = [None, None, SQLAlchemyError("Update failed")]
 
     success = await billing.process_toll_event_for_billing(SAMPLE_TOLL_EVENT, mock_db_session)
 
-    assert success is False  # Processing failed due to DB error during update
+    assert success is False  # DB error → failure signal
 
-    mock_payment_gateway.assert_awaited_once()  # Payment was attempted
-    # Check rollback was called after the failed commit
+    mock_payment_gateway.assert_awaited_once()
     assert mock_db_session.rollback.call_count == 1
 
-    # Check Kafka event IS STILL PUBLISHED (usually desired, payment happened)
+    # Kafka event IS published despite DB failure (payment already happened)
     assert mock_kafka_producer.send.call_count == 1
-    args, kwargs = mock_kafka_producer.send.call_args
-    payload = args[1]
-    assert payload['status'] == "SUCCESS"  # Publish the actual payment outcome
+    _, send_kwargs = mock_kafka_producer.send.call_args
+    payload = send_kwargs['value']
+    assert payload['status'] == "SUCCESS"  # Reflects actual payment outcome

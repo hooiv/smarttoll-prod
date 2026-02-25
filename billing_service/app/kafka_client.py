@@ -111,8 +111,8 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
             group_id=settings.BILLING_CONSUMER_GROUP_ID,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', 'ignore')),
             auto_offset_reset='latest',
-            enable_auto_commit=False, # Manual commits
-            consumer_timeout_ms=-1, # Block indefinitely in poll (or set timeout)
+            enable_auto_commit=False,  # Manual commits
+            consumer_timeout_ms=1000,  # 1 s poll timeout; allows cooperative shutdown
             api_version=(3, 3, 1)
         )
         log.info("Kafka consumer initialized successfully.")
