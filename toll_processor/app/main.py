@@ -8,10 +8,9 @@ from concurrent.futures import ThreadPoolExecutor, Future
 from kafka.errors import KafkaError
 
 # Initialize logging and settings first
-# These imports trigger the setup in their respective modules
-from app.config import settings # noqa F401 loads settings
-from app import logging_config # noqa F401 sets up logging
-from app import kafka_client, database, state, processing, health_server
+from app.config import settings  # noqa F401
+from app import logging_config   # noqa F401
+from app import kafka_client, database, state, processing, health_server, metrics
 from app.database import init_db_schema
 
 log = logging.getLogger(__name__)
@@ -75,18 +74,15 @@ def main_consumer_loop():
 
                         try:
                             # Process the message using the core logic function
-                            # METRICS: Increment message_received_total counter
+                            metrics.messages_received_total.inc()
                             success = processing.process_gps_message(message.value, message.offset)
                             if success:
                                 commit_needed = True
-                                last_processed_offset = message.offset # Track last successfully processed offset
-                                # METRICS: Increment message_processed_success_total counter
+                                last_processed_offset = message.offset
+                                metrics.messages_processed_success_total.inc()
                             else:
-                                # Processing failed, decide if retry is needed (currently process_gps_message returns True even on logic error)
                                 log.error(f"Processing function indicated failure for message at offset {message.offset}. Check logs.")
-                                # METRICS: Increment message_processed_failure_total counter
-                                # If retry needed, don't set commit_needed = True and handle offset commit carefully below
-                                # For now, assume True means "ok to commit past this"
+                                metrics.messages_processed_failure_total.inc()
 
                         except Exception as e:
                             # Catch unexpected errors during the call to process_gps_message itself
@@ -147,7 +143,7 @@ def run_service():
     signal.signal(signal.SIGTERM, shutdown_handler)
 
     log.info("Starting SmartToll Toll Processor Service...")
-    # METRICS: Set service status gauge to 'starting'
+    metrics.service_up.set(1)
 
     # Initialize external dependencies (retry logic is within the getters)
     try:
@@ -209,8 +205,8 @@ def run_service():
          kafka_client.close_kafka_producer()
          database.close_db_pool()
          state.close_redis_client()
+         metrics.service_up.set(0)
          log.info("SmartToll Toll Processor Service stopped.")
-         # METRICS: Set service status gauge to 'stopped'
 
 if __name__ == "__main__":
     run_service()
