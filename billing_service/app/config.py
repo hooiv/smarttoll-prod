@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # API Security
     SERVICE_API_KEY: Optional[str] = None
 
+    # Service metadata
+    SERVICE_VERSION: str = "1.0.0"
+
 
 settings = Settings()
 
