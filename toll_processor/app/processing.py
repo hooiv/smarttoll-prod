@@ -1,6 +1,7 @@
 import logging
 import time
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, Optional
 from math import radians, cos, sin, asin, sqrt
 
@@ -83,14 +84,15 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
              log.warning(f"Calculated unusually large distance ({total_distance}km) for {vehicle_id} exiting {last_state.zone_id}.")
 
         rate = last_state.rate_per_km
-        toll_amount = total_distance * rate
+        # Use Decimal arithmetic for financial calculations to avoid floating-point
+        # precision errors (e.g., 0.15 * 1.187 = 0.17805 not 0.17805000000000002).
+        toll_amount = float(
+            (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+        )
 
-        # Use Decimal for financial calculations if high precision needed
-        # from decimal import Decimal, ROUND_HALF_UP
-        # toll_amount_decimal = (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        # toll_amount = float(toll_amount_decimal)
-
-        toll_amount = round(toll_amount, 2) # Round to 2 decimal places
+        toll_amount = round(toll_amount, 2) # Belt-and-suspenders: already 2dp from Decimal
 
         # Generate toll event payload using Pydantic model for structure and validation
         toll_event = TollEvent(
