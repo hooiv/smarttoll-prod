@@ -8,9 +8,10 @@ from pydantic import ValidationError
 
 from app.models import GpsData, VehicleState, TollEvent
 from app.config import settings
-from app import state as vehicle_state_manager # Renamed import for clarity
-from app import database as db_manager # Renamed import for clarity
+from app import state as vehicle_state_manager
+from app import database as db_manager
 from app import kafka_client
+from app import metrics
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float
         deviceId=device_id
     )
     vehicle_state_manager.update_vehicle_state(vehicle_id, new_state)
-    # METRICS: Increment zone entry counter (metric_name='zone_entries_total', labels={'zone_id': zone_id})
+    metrics.zone_entries_total.labels(zone_id=zone_id).inc()
 
 def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, exit_timestamp_ms: int, exit_lat: float, exit_lon: float):
     """Handles logic when a vehicle exits a zone, calculates toll, sends event."""
@@ -111,9 +112,13 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
         success = kafka_client.send_message(settings.TOLL_EVENT_TOPIC, toll_event.model_dump(), key=vehicle_id.encode('utf-8')) # Pydantic V2, key ensures events for same vehicle go to same partition
 
         if success:
-            log.info(f"Published Toll Event: ID={toll_event.eventId}, Vehicle={vehicle_id}, Zone={toll_event.zoneId}, Amount={toll_event.tollAmount:.2f} {toll_event.currency}, Dist={toll_event.distanceKm:.3f}km")
-            # METRICS: Increment successful toll events counter (metric_name='toll_events_published_total', labels={'zone_id': last_state.zone_id})
-            # METRICS: Record toll amount histogram (metric_name='toll_amount_usd_histogram', value=toll_amount, labels={'zone_id': last_state.zone_id})
+            log.info(
+                f"Published Toll Event: ID={toll_event.eventId}, Vehicle={vehicle_id}, "
+                f"Zone={toll_event.zoneId}, Amount={toll_event.tollAmount:.2f} {toll_event.currency}, "
+                f"Dist={toll_event.distanceKm:.3f}km"
+            )
+            metrics.toll_events_published_total.labels(zone_id=last_state.zone_id).inc()
+            metrics.toll_amount_usd.labels(zone_id=last_state.zone_id).observe(toll_amount)
         else:
             log.error(f"Failed to publish Toll Event for Vehicle {vehicle_id}, Zone {last_state.zone_id}. Event ID: {toll_event.eventId}")
             # Implement retry logic or dead-letter queue for critical billing events if needed
@@ -240,7 +245,7 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
         # --- 4. Processing Successful ---
         processing_duration = time.monotonic() - processing_start_time
         log.debug(f"Successfully processed message for {vehicle_id} at offset {message_offset} in {processing_duration:.4f}s")
-        # METRICS: Record processing time histogram (metric_name='gps_processing_duration_seconds')
+        metrics.gps_processing_duration_seconds.observe(processing_duration)
         return True
 
     except Exception as e:
