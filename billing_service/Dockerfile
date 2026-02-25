@@ -4,8 +4,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    LOG_LEVEL=INFO \
-    APP_MODULE=app.main:app
+    LOG_LEVEL=INFO
 
 # Install curl for health checks and clean up apt cache
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
