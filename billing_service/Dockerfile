@@ -7,12 +7,20 @@ ENV PYTHONUNBUFFERED=1 \
     LOG_LEVEL=INFO \
     APP_MODULE=app.main:app
 
+# Install curl for health checks and clean up apt cache
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ./app /app/app
 COPY alembic.ini .
 COPY alembic /app/alembic
+
+# Create a non-root user for security
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+USER appuser
 
 EXPOSE 8000
 

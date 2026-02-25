@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from pydantic import ValidationError
 
 from app.config import settings
-from app import models, billing, kafka_client, database # Relative imports
+from app import models, billing, kafka_client, database, metrics # Relative imports
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ async def consume_loop(db_session_factory: sessionmaker):
                 for tp, messages in msg_pack.items():
                     for message in messages:
                         log.info(f"Received message - Topic: {message.topic}, Partition: {message.partition}, Offset: {message.offset}")
+                        metrics.kafka_messages_received_total.inc()
                         await process_message(message, db_session_factory, consumer_client)
                 await asyncio.sleep(0.05) # Yield control back to Uvicorn's main loop
             except asyncio.CancelledError:
@@ -79,11 +80,13 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
                 if success:
                     try:
                         consumer.commit() # Commit offset for the partition this message came from
+                        metrics.kafka_messages_processed_total.inc()
                         log.debug(f"Committed offset {message.offset} for event {event_data.eventId}")
                     except Exception as commit_exc:
                          log.error(f"Failed to commit Kafka offset {message.offset} after processing event {event_data.eventId}: {commit_exc}", exc_info=True)
                          # This is problematic - risk of reprocessing. Alerting needed.
                 else:
+                     metrics.kafka_messages_error_total.inc()
                      log.error(f"Processing failed for event {event_data.eventId} at offset {message.offset}. Offset not committed.")
                      # Implement retry mechanism or dead-letter queue based on requirements
 
