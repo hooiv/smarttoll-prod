@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # CORS — comma-separated list of allowed origins, e.g. "https://ui.example.com,http://localhost:3000"
+    # Default "*" (allow all) is safe behind an API key; restrict in production.
+    CORS_ORIGINS: list[str] = ["*"]
+
     # Payment Gateway (Mock settings)
     MOCK_PAYMENT_FAIL_RATE: float = 0.1
 
