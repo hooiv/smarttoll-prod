@@ -110,7 +110,9 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
             bootstrap_servers=settings.KAFKA_BROKER,
             group_id=settings.BILLING_CONSUMER_GROUP_ID,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', 'ignore')),
-            auto_offset_reset='latest',
+            # Use 'earliest' so that events produced while the service is down are never
+            # lost — the idempotency check in billing.py prevents double-charging.
+            auto_offset_reset='earliest',
             enable_auto_commit=False,  # Manual commits
             consumer_timeout_ms=1000,  # 1 s poll timeout; allows cooperative shutdown
             api_version=(3, 3, 1)

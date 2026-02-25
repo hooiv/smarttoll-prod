@@ -45,7 +45,8 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
         toll_event_id=event_data.eventId,
         amount=round(event_data.tollAmount, 2), # Ensure rounded
         currency=event_data.currency,
-        status="PENDING" # Start as pending
+        status="PENDING",
+        retry_count=0, # Initialize so increment works before first DB flush
     )
     db.add(new_tx)
     try:
@@ -73,8 +74,9 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     final_status = "FAILED" # Default to failed
 
     try:
-        # Update status to PROCESSING first
+        # Update status to PROCESSING first, increment attempt counter
         new_tx.status = "PROCESSING"
+        new_tx.retry_count += 1
         db.commit()
         log.info(f"TxID={tx_id} status updated to PROCESSING before calling payment gateway.")
 

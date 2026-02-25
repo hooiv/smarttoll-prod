@@ -26,7 +26,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             # DB
             try:
                 with database.get_db_connection() as conn:
-                    conn.cursor().execute('SELECT 1')
+                    with conn.cursor() as cur:
+                        cur.execute('SELECT 1')
             except Exception as e:
                 errors.append(f'DB error: {e}')
             # Redis
