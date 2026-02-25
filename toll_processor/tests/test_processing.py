@@ -300,3 +300,33 @@ def test_gps_data_rejects_far_future_timestamp():
             timestamp=future_ms,
             latitude=40.71, longitude=-74.0,
         )
+
+
+# --- freezegun-based tests for deterministic timestamp validation ---
+
+def test_gps_data_rejects_stale_timestamp_deterministic():
+    """Using freezegun: GpsData rejects timestamp older than 10 minutes.
+
+    freezegun makes the test independent of wall-clock time, so it
+    passes at any time of day and does not flake near midnight.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+    from freezegun import freeze_time
+
+    # Freeze wall clock at noon UTC
+    with freeze_time("2026-06-15 12:00:00"):
+        stale_ms = int((time.time() - 11 * 60) * 1000)  # 11 minutes ago
+        with pytest.raises(PydanticValidationError, match="too old"):
+            GpsData(deviceId="D1", vehicleId="V1", timestamp=stale_ms,
+                    latitude=40.71, longitude=-74.0)
+
+
+def test_gps_data_accepts_current_timestamp_deterministic():
+    """Using freezegun: GpsData accepts a timestamp equal to now."""
+    from freezegun import freeze_time
+
+    with freeze_time("2026-06-15 12:00:00"):
+        now_ms = int(time.time() * 1000)
+        gps = GpsData(deviceId="D1", vehicleId="V1", timestamp=now_ms,
+                      latitude=40.71, longitude=-74.0)
+        assert gps.timestamp == now_ms
