@@ -13,15 +13,25 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      # Disable JVM container-detection to avoid NullPointerException on cgroup v2 kernels
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:-UseContainerSupport"
     networks:
       - smarttoll_net
+    healthcheck:
+      test: ["CMD", "cub", "zk-ready", "localhost:2181", "30"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.3.0
     container_name: smarttoll_kafka
     depends_on:
       zookeeper:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
     ports:
       # Port for clients outside docker network (your machine)
       - "9092:9092"
@@ -44,6 +54,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       # Auto create topics for development (DISABLE in production)
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      # Disable JVM container-detection to avoid NullPointerException on cgroup v2 kernels
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:-UseContainerSupport"
     networks:
       - smarttoll_net
     healthcheck:

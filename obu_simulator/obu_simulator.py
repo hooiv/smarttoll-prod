@@ -60,7 +60,8 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
             acks=1, # Fire-and-forget is often okay for high-volume sensor data
             retries=3,
             retry_backoff_ms=100,
-            linger_ms=5 # Slight batching
+            linger_ms=5, # Slight batching
+            api_version=(3, 3, 1) # Explicit version avoids slow broker-probing on startup
         )
         logger.info("Kafka producer initialized successfully.")
         return producer
