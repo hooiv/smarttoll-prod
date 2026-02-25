@@ -1,83 +1,141 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, text
+from sqlalchemy import select, func, text
 
-from app import database, models, kafka_client, consumer # Relative imports
+from app import database, models, kafka_client, consumer
+from app.security import verify_api_key
 
 log = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1", tags=["Billing"]) # Add prefix and tags
+router = APIRouter(prefix="/api/v1", tags=["Billing"])
 
-# New: Health and readiness dependency
+
+# ---------------------------------------------------------------------------
+# Dependency: check that core dependencies are healthy
+# ---------------------------------------------------------------------------
 async def check_dependencies():
     try:
         with database.get_db_session() as db:
             db.execute(text("SELECT 1"))
-    except Exception as e:
-        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection failed")
+    except Exception:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed",
+        )
     if not consumer.consumer_ready.is_set():
-        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Kafka consumer not ready")
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Kafka consumer not ready",
+        )
 
-# Health endpoints
+
+# ---------------------------------------------------------------------------
+# Health endpoints (no auth required)
+# ---------------------------------------------------------------------------
 @router.get("/health/live", status_code=http_status.HTTP_200_OK, tags=["Health"])
 async def liveness_check():
-    return {"status":"live"}
+    return {"status": "live"}
+
 
 @router.get("/health/ready", status_code=http_status.HTTP_200_OK, tags=["Health"])
 async def readiness_check(_: None = Depends(check_dependencies)):
-    return {"status":"ready"}
+    return {"status": "ready"}
 
-@router.get("/health")
+
+@router.get("/health", tags=["Health"])
 async def health_check():
     """Basic health check endpoint."""
-    # TODO: Add deeper checks (DB connection, Kafka connection?) if needed
-    log.debug("Health check endpoint called")
     return {"status": "ok", "service": "Billing Service"}
+
+
+# ---------------------------------------------------------------------------
+# Transaction endpoints (API key required)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/transactions",
+    response_model=models.TransactionListResponse,
+    summary="List Billing Transactions",
+    description="Returns a paginated list of billing transactions, optionally filtered by vehicle or status.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def list_transactions(
+    vehicle_id: str | None = Query(None, description="Filter by vehicle ID"),
+    status: str | None = Query(None, description="Filter by status (PENDING, SUCCESS, FAILED, …)"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    db: Session = Depends(database.get_db),
+):
+    """Returns a paginated list of transactions with optional filters."""
+    stmt = select(models.BillingTransaction)
+    count_stmt = select(func.count()).select_from(models.BillingTransaction)
+
+    if vehicle_id:
+        stmt = stmt.where(models.BillingTransaction.vehicle_id == vehicle_id)
+        count_stmt = count_stmt.where(models.BillingTransaction.vehicle_id == vehicle_id)
+    if status:
+        stmt = stmt.where(models.BillingTransaction.status == status.upper())
+        count_stmt = count_stmt.where(models.BillingTransaction.status == status.upper())
+
+    total = db.execute(count_stmt).scalar_one()
+    offset = (page - 1) * page_size
+    items = db.execute(
+        stmt.order_by(models.BillingTransaction.transaction_time.desc())
+           .offset(offset)
+           .limit(page_size)
+    ).scalars().all()
+
+    return models.TransactionListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
 
 @router.get(
     "/transactions/status/{toll_event_id}",
-    response_model=models.TransactionStatusResponse, # Use Pydantic model for response
+    response_model=models.TransactionStatusResponse,
     summary="Get Billing Transaction Status by Toll Event ID",
-    description="Retrieves the current status and details of a billing transaction based on the original Toll Event ID."
+    description="Retrieves the current status and details of a billing transaction "
+                "based on the original Toll Event ID.",
+    dependencies=[Depends(verify_api_key)],
 )
 async def get_transaction_status_by_event(
     toll_event_id: str,
-    db: Session = Depends(database.get_db) # Use FastAPI dependency injection for DB session
+    db: Session = Depends(database.get_db),
 ):
     """Retrieves billing transaction status using the Toll Event ID."""
     log.info(f"Request received for transaction status with Toll Event ID: {toll_event_id}")
-    stmt = select(models.BillingTransaction).where(models.BillingTransaction.toll_event_id == toll_event_id)
+    stmt = select(models.BillingTransaction).where(
+        models.BillingTransaction.toll_event_id == toll_event_id
+    )
     tx = db.execute(stmt).scalars().first()
-
     if not tx:
-        log.warning(f"Transaction not found for Toll Event ID: {toll_event_id}")
-        raise HTTPException(status_code=404, detail=f"Transaction for Toll Event ID '{toll_event_id}' not found.")
-
-    log.info(f"Found transaction TxID={tx.id} with status '{tx.status}' for Toll Event ID: {toll_event_id}")
-    # Pydantic model `TransactionStatusResponse` with orm_mode=True handles conversion
+        raise HTTPException(
+            status_code=404,
+            detail=f"Transaction for Toll Event ID '{toll_event_id}' not found.",
+        )
     return tx
 
-# Example: Endpoint to get status by internal DB transaction ID
+
 @router.get(
     "/transactions/{transaction_id}",
     response_model=models.TransactionStatusResponse,
-    summary="Get Billing Transaction Status by Internal ID"
+    summary="Get Billing Transaction Status by Internal ID",
+    dependencies=[Depends(verify_api_key)],
 )
 async def get_transaction_status_by_id(
     transaction_id: int,
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
 ):
     """Retrieves billing transaction status using the internal database ID."""
-    log.info(f"Request received for transaction status with Internal ID: {transaction_id}")
-    # Use db.get() for primary key lookup if session manages the object lifecycle correctly
-    # tx = db.get(models.BillingTransaction, transaction_id) # Might require specific session config or loading
-    # Using select is generally safer across different session states:
-    stmt = select(models.BillingTransaction).where(models.BillingTransaction.id == transaction_id)
+    stmt = select(models.BillingTransaction).where(
+        models.BillingTransaction.id == transaction_id
+    )
     tx = db.execute(stmt).scalars().first()
-
     if not tx:
-        log.warning(f"Transaction not found for Internal ID: {transaction_id}")
-        raise HTTPException(status_code=404, detail=f"Transaction with ID '{transaction_id}' not found.")
-
-    log.info(f"Found transaction TxID={tx.id} with status '{tx.status}'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Transaction with ID '{transaction_id}' not found.",
+        )
     return tx
