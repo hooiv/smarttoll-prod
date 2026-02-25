@@ -1,13 +1,14 @@
--- Create smarttoll_user role and database if not exists
+-- Create test_user role if not exists (POSTGRES_USER already creates it,
+-- but this ensures the role exists for any init-time grants).
 DO
 $do$
 BEGIN
    IF NOT EXISTS (
-      SELECT FROM pg_catalog.pg_roles WHERE rolname = 'smarttoll_user') THEN
-      CREATE ROLE smarttoll_user LOGIN PASSWORD 'changeme_in_prod_123!';
+      SELECT FROM pg_catalog.pg_roles WHERE rolname = 'test_user') THEN
+      CREATE ROLE test_user LOGIN PASSWORD 'test_password';
    END IF;
 END
 $do$;
 
--- Grant privileges on smarttoll_dev database
-GRANT ALL PRIVILEGES ON DATABASE smarttoll_dev TO smarttoll_user;
+-- Grant privileges on test_smarttoll database
+GRANT ALL PRIVILEGES ON DATABASE test_smarttoll TO test_user;

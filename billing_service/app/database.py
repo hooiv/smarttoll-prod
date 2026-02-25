@@ -16,6 +16,9 @@ try:
         str(settings.DATABASE_URL), # Convert DSN type to string
         pool_pre_ping=True,
         pool_recycle=3600, # Recycle connections older than 1 hour
+        pool_size=settings.POSTGRES_POOL_SIZE,
+        max_overflow=settings.POSTGRES_MAX_OVERFLOW,
+        pool_timeout=settings.POSTGRES_POOL_TIMEOUT,
         echo=settings.LOG_LEVEL == "DEBUG" # Log SQL statements only in DEBUG mode
     )
 

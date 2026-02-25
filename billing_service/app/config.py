@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "changeme_in_prod_123!"
     DATABASE_URL: Optional[str] = None
 
+    # Database connection pool
+    POSTGRES_POOL_SIZE: int = 5
+    POSTGRES_MAX_OVERFLOW: int = 10
+    POSTGRES_POOL_TIMEOUT: int = 30
+
     @model_validator(mode='after')
     def assemble_db_url(self) -> 'Settings':
         if not self.DATABASE_URL:
