@@ -5,6 +5,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 # Initialize Logging and Config first
@@ -70,6 +71,15 @@ app = FastAPI(
     description="Handles toll event consumption, payment processing, and status tracking.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# CORS — allow any origin by default (restrict via CORS_ORIGINS env var in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET"],
+    allow_headers=["*"],
 )
 
 # Wire up Prometheus metrics at /metrics

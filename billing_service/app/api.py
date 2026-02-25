@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
@@ -8,6 +9,14 @@ from app.security import verify_api_key
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["Billing"])
+
+
+class TransactionStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    RETRY = "RETRY"
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +69,7 @@ async def health_check():
 )
 async def list_transactions(
     vehicle_id: str | None = Query(None, description="Filter by vehicle ID"),
-    status: str | None = Query(None, description="Filter by status (PENDING, SUCCESS, FAILED, …)"),
+    status: TransactionStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
     db: Session = Depends(database.get_db),
@@ -73,8 +82,8 @@ async def list_transactions(
         stmt = stmt.where(models.BillingTransaction.vehicle_id == vehicle_id)
         count_stmt = count_stmt.where(models.BillingTransaction.vehicle_id == vehicle_id)
     if status:
-        stmt = stmt.where(models.BillingTransaction.status == status.upper())
-        count_stmt = count_stmt.where(models.BillingTransaction.status == status.upper())
+        stmt = stmt.where(models.BillingTransaction.status == status.value)
+        count_stmt = count_stmt.where(models.BillingTransaction.status == status.value)
 
     total = db.execute(count_stmt).scalar_one()
     offset = (page - 1) * page_size
