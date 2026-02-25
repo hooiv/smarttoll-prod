@@ -191,8 +191,9 @@ def test_process_gps_message_exit_from_zone(mock_dependencies):
     assert toll_event.exitTime == SAMPLE_GPS_OUTSIDE_ZONE.timestamp
     assert toll_event.distanceKm == pytest.approx(1.25 + 0.25)  # Accumulated + final segment
     assert toll_event.ratePerKm == 0.15
-    expected_toll = (1.25 + 0.25) * 0.15
-    assert toll_event.tollAmount == pytest.approx(round(expected_toll, 2))
+    # Decimal ROUND_HALF_UP: 1.5 km * 0.15 $/km = 0.225 -> rounds to 0.23
+    # (float gives 0.22 because 1.5*0.15 == 0.22499... due to representation error)
+    assert toll_event.tollAmount == pytest.approx(0.23)
     assert toll_event.currency == "USD"
 
 def test_process_gps_message_move_between_zones(mock_dependencies):

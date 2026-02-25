@@ -26,7 +26,6 @@ async def consume_loop(db_session_factory: sessionmaker):
 
         log.info("Kafka consumer is ready.")
         consumer_ready.set()
-        log.info(f"consumer_ready event SET in consumer.py. is_set: {consumer_ready.is_set()}") # New log
 
         log.info(f"Starting consumption from topic '{settings.TOLL_EVENT_TOPIC}'...")
         while True:
