@@ -165,6 +165,8 @@ services:
       BIND_HOST: 0.0.0.0
       BIND_PORT: 8000
       LOG_LEVEL: DEBUG
+      # Payment simulation: 0.0 = always succeed, 1.0 = always fail (override via .env)
+      MOCK_PAYMENT_FAIL_RATE: ${MOCK_PAYMENT_FAIL_RATE:-0.1}
     ports:
       # Map internal port 8000 to host port 8001
       - "8001:8000"
