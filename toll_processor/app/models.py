@@ -1,3 +1,5 @@
+import logging
+import time as _time
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any
 import uuid
@@ -20,6 +22,27 @@ class GpsData(BaseModel):
     def timestamp_must_be_positive(cls, v: int) -> int:
         if v <= 0:
             raise ValueError('Timestamp must be a positive epoch milliseconds value')
+        return v
+
+    @field_validator('timestamp')
+    @classmethod
+    def timestamp_must_be_recent(cls, v: int) -> int:
+        """Reject GPS messages that are stale (>10 min old) or from the future (>60 s ahead).
+
+        Stale messages could cause incorrect zone-entry/exit accounting since the
+        toll processor uses the GPS timestamp for entry/exit times.
+        """
+        now_ms = int(_time.time() * 1000)
+        max_age_ms = 10 * 60 * 1000   # 10 minutes
+        max_future_ms = 60 * 1000     # 60 seconds
+        if v < now_ms - max_age_ms:
+            raise ValueError(
+                f'GPS timestamp is too old: {(now_ms - v) / 1000:.0f}s ago (max 10 minutes)'
+            )
+        if v > now_ms + max_future_ms:
+            raise ValueError(
+                f'GPS timestamp is in the future: {(v - now_ms) / 1000:.0f}s ahead (max 60 seconds)'
+            )
         return v
 
 

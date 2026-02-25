@@ -57,6 +57,13 @@ async def health_check():
     return {"status": "ok", "service": "Billing Service"}
 
 
+@router.get("/version", tags=["Health"], summary="Service Version")
+async def version():
+    """Returns the current service version."""
+    from app.config import settings as _settings
+    return {"service": "billing_service", "version": _settings.SERVICE_VERSION}
+
+
 # ---------------------------------------------------------------------------
 # Transaction endpoints (API key required)
 # ---------------------------------------------------------------------------
