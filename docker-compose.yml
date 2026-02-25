@@ -33,7 +33,7 @@ services:
       KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092
       # How clients can reach Kafka. INTERNAL for broker-to-broker and service-to-broker communication.
       # Use 'kafka:29092' internally. Use 'localhost:9092' externally.
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://127.0.0.1:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       # Sensible defaults for single-node setup
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1

@@ -19,9 +19,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             errors = []
             # Kafka
             try:
-                consumer = kafka_client.get_kafka_consumer()
-                if not consumer or not consumer.bootstrap_connected():
-                    errors.append('Kafka not connected')
+                if not kafka_client.consumer_ready.is_set():
+                    errors.append('Kafka consumer not ready (handshake in progress or no messages yet)')
             except Exception as e:
                 errors.append(f'Kafka error: {e}')
             # DB

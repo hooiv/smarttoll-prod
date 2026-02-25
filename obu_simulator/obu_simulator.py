@@ -32,14 +32,14 @@ KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:29092") # Use internal list
 GPS_TOPIC = os.environ.get("GPS_TOPIC", "smarttoll.gps.raw.v1")
 DEVICE_ID = os.environ.get("SIM_DEVICE_ID", "OBU_SIM_DEFAULT")
 VEHICLE_ID = os.environ.get("SIM_VEHICLE_ID", "VEH_SIM_DEFAULT")
-SEND_INTERVAL_SECONDS = int(os.environ.get("SIM_SEND_INTERVAL_SECONDS", 5))
+SEND_INTERVAL_SECONDS = float(os.environ.get("SIM_SEND_INTERVAL_SECONDS", 5))
 
 # --- Simulation Parameters ---
 # Simulate driving along a line, passing through a defined geofence zone (approx)
 # Zone is roughly between lon -74.008 to -74.002 and lat 40.705 to 40.715
 START_LAT, START_LON = 40.7000, -74.0100
 END_LAT, END_LON     = 40.7200, -74.0000
-NUM_STEPS = 40 # More steps for finer simulation through the zone
+NUM_STEPS = int(os.environ.get("SIM_NUM_STEPS", 40)) # More steps for finer simulation through the zone
 current_step = 0
 
 # --- Global State ---

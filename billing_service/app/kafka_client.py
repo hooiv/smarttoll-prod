@@ -33,6 +33,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
             retry_backoff_ms=200,
             request_timeout_ms=30000,
             linger_ms=10,
+            api_version=(3, 3, 1)
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
@@ -112,7 +113,7 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
             auto_offset_reset='latest',
             enable_auto_commit=False, # Manual commits
             consumer_timeout_ms=-1, # Block indefinitely in poll (or set timeout)
-            # max_poll_interval_ms=300000, # Consider heartbeat/poll interval
+            api_version=(3, 3, 1)
         )
         log.info("Kafka consumer initialized successfully.")
         return _consumer

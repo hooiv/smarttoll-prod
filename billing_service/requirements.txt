@@ -1,6 +1,6 @@
 fastapi>=0.95.2
 uvicorn[standard]>=0.22.0
-kafka-python>=2.0.2
+kafka-python-ng>=2.2.0
 sqlalchemy>=1.4.47,<2.0.0 # Pin V1.4 for now, V2 requires syntax changes
 psycopg2-binary>=2.9.3
 pydantic>=1.10.7,<2.0.0 # Match toll_processor for BaseSettings V1 compatibility

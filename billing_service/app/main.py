@@ -22,7 +22,7 @@ app = FastAPI(
     version="1.0.0"
 )
 consumer_task: Optional[asyncio.Task] = None
-consumer_ready = asyncio.Event() # Event to signal when consumer is ready/connected
+# consumer_ready is now imported from consumer.py via 'from app import consumer'
 
 
 # --- Event Handlers ---
@@ -31,25 +31,29 @@ async def startup_event():
     """Application startup logic."""
     global consumer_task
     log.info("Billing Service starting up...")
+    
+    # Create tables if they don't exist
+    log.info("Creating database tables...")
+    models.Base.metadata.create_all(bind=database.engine)
 
     # Initialize Kafka Producer first (needed by billing logic)
     kafka_client.get_kafka_producer() # Use the getter which handles initialization
 
     log.info("Starting Kafka consumer task...")
-    consumer_task = asyncio.create_task(consumer.consume_loop(database.SessionLocal, consumer_ready))
+    consumer_task = asyncio.create_task(consumer.consume_loop(database.SessionLocal))
     log.info(f"Consumer task created: {consumer_task}")
 
     try:
         log.info("Attempting to wait for consumer_ready event...")
-        log.info(f"State of consumer_ready event BEFORE wait: is_set={consumer_ready.is_set()}") # New log
-        await asyncio.wait_for(consumer_ready.wait(), timeout=30.0)
+        log.info(f"State of consumer_ready event BEFORE wait: is_set={consumer.consumer_ready.is_set()}") # New log
+        await asyncio.wait_for(consumer.consumer_ready.wait(), timeout=30.0)
         log.info("Consumer task reported ready via event. (Await completed)") # Modified log
     except asyncio.TimeoutError:
          log.warning("Consumer task did not report ready via event within 30s timeout. (Await timed out)") # Modified log
     except Exception as e: # Broader exception catch
          log.exception(f"An unexpected error occurred while waiting for consumer_ready event: {e} (Await raised exception)") # Modified log
     finally: # Added finally block
-        log.info(f"FINALLY block: consumer_ready event status after wait attempt: is_set={consumer_ready.is_set()}") # Modified log
+        log.info(f"FINALLY block: consumer_ready event status after wait attempt: is_set={consumer.consumer_ready.is_set()}") # Modified log
         if consumer_task: # Check if task exists
             log.info(f"FINALLY block: Consumer task state: done={consumer_task.done()}, cancelled={consumer_task.cancelled()}")
             if consumer_task.done() and not consumer_task.cancelled():

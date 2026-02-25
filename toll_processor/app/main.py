@@ -58,6 +58,10 @@ def main_consumer_loop():
                     log.info("Shutdown signal received during poll, exiting loop.")
                     break
 
+                if not kafka_client.consumer_ready.is_set():
+                    kafka_client.consumer_ready.set()
+                    log.info("Kafka consumer marked as READY (first batch received or poll succeeded)")
+                
                 for tp, messages in message_pack.items():
                     log.info(f"Processing batch of {len(messages)} messages from partition {tp.partition}")
                     commit_needed = False

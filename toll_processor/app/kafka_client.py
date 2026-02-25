@@ -16,6 +16,7 @@ _producer: Optional[KafkaProducer] = None
 _consumer: Optional[KafkaConsumer] = None
 _producer_lock = threading.Lock()
 _consumer_lock = threading.Lock()
+consumer_ready = threading.Event()
 
 # --- Kafka Producer ---
 
@@ -39,7 +40,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
             retry_backoff_ms=200, # Wait longer between retries
             request_timeout_ms=30000, # Timeout for producer requests
             linger_ms=10, # Batch messages slightly for better throughput
-            # api_version_auto_timeout_ms=10000 # May help with broker version detection issues
+            api_version=(3, 3, 1) # Explicitly set version to avoid probing delays
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
@@ -146,14 +147,10 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
             bootstrap_servers=settings.KAFKA_BROKER,
             group_id=settings.CONSUMER_GROUP_ID,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', 'ignore')), # Handle potential decode errors gracefully
-            auto_offset_reset='latest', # Process new messages. Use 'earliest' to process from beginning.
+            auto_offset_reset='earliest', # Process from beginning for reliable local testing
             enable_auto_commit=False, # CRITICAL: Use manual commits
             consumer_timeout_ms=1000, # Timeout for poll() to allow checking shutdown flag
-            # fetch_max_wait_ms=500, # How long poll waits if no data
-            # max_poll_records=100, # Max records per poll
-            # max_poll_interval_ms=300000, # Max time between polls before considered dead (5 mins)
-            # security_protocol="SASL_SSL", # Example
-            # ... other security settings
+            api_version=(3, 3, 1) # Explicitly set version
         )
         log.info("Kafka consumer initialized successfully.")
         # Log assigned partitions (optional, may take a moment after init)

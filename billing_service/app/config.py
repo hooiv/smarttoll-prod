@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         # Otherwise, construct it from components
         return PostgresDsn.build(
             scheme="postgresql+psycopg2", # Driver
-            username=values.get("POSTGRES_USER"),
+            user=values.get("POSTGRES_USER"),
             password=values.get("POSTGRES_PASSWORD"),
             host=values.get("POSTGRES_HOST"),
             port=str(values.get("POSTGRES_PORT")),

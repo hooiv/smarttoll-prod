@@ -155,6 +155,7 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
         True if processing was successful (or skipped gracefully), False otherwise (signals potential retry).
     """
     processing_start_time = time.monotonic()
+    log.info(f"RECEIVED GPS message at offset {message_offset} for vehicle {message_value.get('vehicleId')}")
     log.debug(f"Processing message at offset {message_offset}: {message_value}")
 
     # --- 1. Validation and Parsing ---

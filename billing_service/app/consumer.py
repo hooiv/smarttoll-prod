@@ -10,7 +10,10 @@ from app import models, billing, kafka_client, database # Relative imports
 
 log = logging.getLogger(__name__)
 
-async def consume_loop(db_session_factory: sessionmaker, ready_event: asyncio.Event):
+# Global event to signal when consumer is ready
+consumer_ready = asyncio.Event()
+
+async def consume_loop(db_session_factory: sessionmaker):
     log.info("Consumer loop starting...")
     consumer_client = None
     try:
@@ -22,16 +25,19 @@ async def consume_loop(db_session_factory: sessionmaker, ready_event: asyncio.Ev
             return
 
         log.info("Kafka consumer is ready.")
-        ready_event.set()
-        log.info(f"consumer_ready event SET in consumer.py. is_set: {ready_event.is_set()}") # New log
+        consumer_ready.set()
+        log.info(f"consumer_ready event SET in consumer.py. is_set: {consumer_ready.is_set()}") # New log
 
         log.info(f"Starting consumption from topic '{settings.TOLL_EVENT_TOPIC}'...")
         while True:
             try:
-                log.debug("Waiting for messages...")
-                for message in consumer_client:
-                    log.info(f"Received message - Topic: {getattr(message, 'topic', None)}, Partition: {getattr(message, 'partition', None)}, Offset: {getattr(message, 'offset', None)}, Key: {getattr(message, 'key', None)}, Value: {getattr(message, 'value', None)}")
-                    await asyncio.sleep(0.01)
+                # Use poll with a short timeout to avoid blocking the async event loop indefinitely
+                msg_pack = consumer_client.poll(timeout_ms=200)
+                for tp, messages in msg_pack.items():
+                    for message in messages:
+                        log.info(f"Received message - Topic: {message.topic}, Partition: {message.partition}, Offset: {message.offset}")
+                        await process_message(message, db_session_factory, consumer_client)
+                await asyncio.sleep(0.05) # Yield control back to Uvicorn's main loop
             except asyncio.CancelledError:
                 log.info("Consume loop (inner while True) cancelled.")
                 break # Exit the while True loop
