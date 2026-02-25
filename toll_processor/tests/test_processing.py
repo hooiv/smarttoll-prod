@@ -253,3 +253,49 @@ def test_process_gps_message_move_between_zones(mock_dependencies):
     assert new_state_b.lon == SAMPLE_GPS_DIFFERENT_ZONE.longitude
     assert new_state_b.entry_time == SAMPLE_GPS_DIFFERENT_ZONE.timestamp  # Entry time is current time
     assert new_state_b.deviceId == "DEV123"  # Should carry over deviceId
+
+# --- Tests for GpsData timestamp staleness validation ---
+
+def test_gps_data_accepts_current_timestamp():
+    """GpsData accepts a timestamp that is current (now)."""
+    gps = GpsData(
+        deviceId="DEV1", vehicleId="VEH1",
+        timestamp=int(time.time() * 1000),
+        latitude=40.71, longitude=-74.0,
+    )
+    assert gps.timestamp > 0
+
+
+def test_gps_data_accepts_recent_past_timestamp():
+    """GpsData accepts a timestamp that is 5 minutes ago (within the 10-min window)."""
+    five_min_ago_ms = int((time.time() - 5 * 60) * 1000)
+    gps = GpsData(
+        deviceId="DEV1", vehicleId="VEH1",
+        timestamp=five_min_ago_ms,
+        latitude=40.71, longitude=-74.0,
+    )
+    assert gps.timestamp == five_min_ago_ms
+
+
+def test_gps_data_rejects_stale_timestamp():
+    """GpsData rejects a timestamp older than 10 minutes."""
+    from pydantic import ValidationError as PydanticValidationError
+    stale_ms = int((time.time() - 11 * 60) * 1000)  # 11 minutes ago
+    with pytest.raises(PydanticValidationError, match="too old"):
+        GpsData(
+            deviceId="DEV1", vehicleId="VEH1",
+            timestamp=stale_ms,
+            latitude=40.71, longitude=-74.0,
+        )
+
+
+def test_gps_data_rejects_far_future_timestamp():
+    """GpsData rejects a timestamp more than 60 seconds in the future."""
+    from pydantic import ValidationError as PydanticValidationError
+    future_ms = int((time.time() + 120) * 1000)  # 2 minutes ahead
+    with pytest.raises(PydanticValidationError, match="future"):
+        GpsData(
+            deviceId="DEV1", vehicleId="VEH1",
+            timestamp=future_ms,
+            latitude=40.71, longitude=-74.0,
+        )
