@@ -1,22 +1,26 @@
 import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
-from app.config import settings  # Add missing import
+from app.config import settings
 
 log = logging.getLogger(__name__)
 
-# --- Basic API Key Authentication ---
-# WARNING: For production, store API keys securely and consider OAuth2/OIDC.
-VALID_API_KEYS = {settings.SERVICE_API_KEY} if hasattr(settings, 'SERVICE_API_KEY') else {"supersecretapikey123"}
-
 api_key_header = APIKeyHeader(name="X-API-KEY", auto_error=True)
+
 
 async def verify_api_key(api_key: str = Depends(api_key_header)):
     """Dependency to verify the provided API key."""
-    if api_key in VALID_API_KEYS:
+    configured_key = settings.SERVICE_API_KEY
+    if not configured_key:
+        log.error("SERVICE_API_KEY is not configured — all API key checks will fail.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key authentication is not configured on this server.",
+        )
+    if api_key == configured_key:
         log.debug("Valid API key received.")
         return api_key
-    log.warning(f"Invalid API key received: '{api_key[:5]}...'")
+    log.warning(f"Invalid API key attempt: '{api_key[:4]}...'")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or missing API Key",
