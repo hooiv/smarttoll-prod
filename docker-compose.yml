@@ -59,11 +59,11 @@ services:
     networks:
       - smarttoll_net
     healthcheck:
-      # A basic healthcheck - Kafka readiness is complex. Consider kafka-ready tools for prod.
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:29092 --list || exit 1"]
+      test: ["CMD", "cub", "kafka-ready", "-b", "kafka:29092", "1", "10"]
       interval: 15s
-      timeout: 10s
+      timeout: 15s
       retries: 10
+      start_period: 30s
 
   # --- Core Infrastructure ---
   redis:
