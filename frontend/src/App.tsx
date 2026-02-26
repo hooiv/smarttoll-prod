@@ -599,23 +599,23 @@ function CTA() {
             style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(6,182,212,0.08))', border: '1px solid rgba(59,130,246,0.2)' }}>
             <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full pointer-events-none"
               style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 70%)' }} />
-            <div className="relative z-10">
+            <div className="relative z-10 flex flex-col items-center">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold uppercase tracking-widest mb-8"
                 style={{ border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}>
                 <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                 Start Today
               </div>
-              <h2 className="text-4xl md:text-6xl font-black tracking-tighter text-white mb-6">
+              <h2 className="text-4xl md:text-6xl font-black tracking-tighter text-white mb-6 text-center">
                 Deploy the future<br />
                 <span style={{ background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                   of toll infrastructure.
                 </span>
               </h2>
-              <p className="text-white/50 text-lg max-w-xl mx-auto mb-8 text-center">
+              <p className="text-white/50 text-lg max-w-xl mb-8 text-center">
                 One command. Full Kafka, PostgreSQL, Redis, and three microservices — ready in under 2 minutes.
               </p>
               {/* Quick start code block */}
-              <div className="max-w-lg mx-auto mb-10 rounded-xl overflow-hidden text-left" style={{ background: '#0a0d16', border: '1px solid rgba(59,130,246,0.2)' }}>
+              <div className="w-full max-w-lg mb-10 rounded-xl overflow-hidden text-left" style={{ background: '#0a0d16', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <div className="flex items-center gap-2 px-4 py-2.5" style={{ background: '#0f1420', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                   <Terminal className="w-3.5 h-3.5 text-blue-400" />
                   <span className="text-xs text-white/40 font-mono">Quick Start</span>
