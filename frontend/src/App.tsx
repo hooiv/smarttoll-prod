@@ -111,7 +111,7 @@ const PIPELINE_STEPS = [
 function Hero() {
   const pipeline = PIPELINE_STEPS
   return (
-    <section className="relative min-h-[92vh] flex flex-col justify-end overflow-hidden" style={{ background: '#050810' }}>
+    <section className="relative min-h-[92vh] flex flex-col justify-center overflow-hidden pt-20" style={{ background: '#050810' }}>
       {/* Background radial glows */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full"
@@ -193,7 +193,7 @@ function Hero() {
       </motion.div>
 
       {/* Main content */}
-      <div className="relative z-10 section-padding pb-20">
+      <div className="relative z-10 section-padding">
         <div className="max-w-7xl mx-auto lg:max-w-[55%]">
           <FadeIn delay={0.1} direction="none">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold uppercase tracking-widest mb-8"
@@ -290,9 +290,9 @@ function Architecture() {
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
             Three Services.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>One Seamless Pipeline.</span>
           </h2>
-          <p className="text-white/50 max-w-xl mb-8 text-lg">Event-driven microservices architecture built for throughput, resilience, and observability.</p>
+          <p className="text-white/50 max-w-xl mb-6 text-lg">Event-driven microservices architecture built for throughput, resilience, and observability.</p>
         </FadeIn>
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
+        <div className="grid md:grid-cols-3 gap-6 mb-6">
           {services.map((svc, i) => (
             <FadeIn key={svc.name} delay={i * 0.15}>
               <div className="card-glass card-hover rounded-2xl p-6 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${svc.color}` }}>
@@ -443,22 +443,23 @@ function KernelLog() {
 
 function Stats() {
   const statsData = [
-    { value: '< 5ms', label: 'GPS Processing Latency', icon: <Zap className="w-5 h-5" />, color: '#3b82f6' },
-    { value: '99.1%', label: 'Payment Success Rate', icon: <CheckCircle2 className="w-5 h-5" />, color: '#22c55e' },
-    { value: '6hr', label: 'Vehicle State TTL (Redis)', icon: <Clock className="w-5 h-5" />, color: '#06b6d4' },
-    { value: '∞', label: 'Event Replay (Kafka)', icon: <Activity className="w-5 h-5" />, color: '#8b5cf6' },
+    { value: '< 5ms', label: 'GPS Processing Latency', desc: 'Kafka → PostGIS → Redis round trip', icon: <Zap className="w-5 h-5" />, color: '#3b82f6' },
+    { value: '99.1%', label: 'Payment Success Rate', desc: 'MOCK gateway, idempotent retries', icon: <CheckCircle2 className="w-5 h-5" />, color: '#22c55e' },
+    { value: '6 hr', label: 'Vehicle State TTL', desc: 'Redis key expiry per vehicle', icon: <Clock className="w-5 h-5" />, color: '#06b6d4' },
+    { value: '∞', label: 'Event Replay', desc: 'Kafka auto_offset_reset=earliest', icon: <Activity className="w-5 h-5" />, color: '#8b5cf6' },
   ]
   return (
-    <section style={{ background: '#050810', borderTop: '1px solid rgba(59,130,246,0.08)', borderBottom: '1px solid rgba(59,130,246,0.08)' }}>
-      <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4">
+    <section style={{ background: '#050810', borderTop: '1px solid rgba(59,130,246,0.1)', borderBottom: '1px solid rgba(59,130,246,0.1)' }}>
+      <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4" style={{ borderLeft: '1px solid rgba(255,255,255,0.04)' }}>
         {statsData.map((stat, i) => (
           <FadeIn key={stat.label} delay={i * 0.1}>
-            <div className="p-8 md:p-10 flex flex-col gap-3" style={{ borderRight: i < statsData.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${stat.color}15`, color: stat.color }}>
+            <div className="p-7 md:p-9 flex flex-col gap-2" style={{ borderRight: '1px solid rgba(255,255,255,0.04)' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${stat.color}15`, color: stat.color }}>
                 {stat.icon}
               </div>
-              <p className="text-3xl md:text-4xl font-black tracking-tighter" style={{ color: stat.color }}>{stat.value}</p>
-              <p className="text-xs text-white/40 font-mono leading-relaxed">{stat.label}</p>
+              <p className="text-3xl md:text-4xl font-black tracking-tighter mt-1" style={{ color: stat.color }}>{stat.value}</p>
+              <p className="text-sm font-semibold text-white/70">{stat.label}</p>
+              <p className="text-xs text-white/30 font-mono leading-relaxed">{stat.desc}</p>
             </div>
           </FadeIn>
         ))}
@@ -610,7 +611,7 @@ function CTA() {
                   of toll infrastructure.
                 </span>
               </h2>
-              <p className="text-white/50 text-lg max-w-xl mx-auto mb-8">
+              <p className="text-white/50 text-lg max-w-xl mx-auto mb-8 text-center">
                 One command. Full Kafka, PostgreSQL, Redis, and three microservices — ready in under 2 minutes.
               </p>
               {/* Quick start code block */}

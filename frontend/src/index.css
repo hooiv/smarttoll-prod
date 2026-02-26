@@ -109,13 +109,14 @@ body {
   box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
 }
 
+/* Asymmetric section padding: more top, less bottom so between-section gaps are tighter */
 .section-padding {
-  padding: 4rem 1.75rem;
+  padding: 4rem 1.75rem 2.5rem;
 }
 
 @media (min-width: 768px) {
-  .section-padding { padding: 4.5rem 3rem; }
+  .section-padding { padding: 4.5rem 3rem 3rem; }
 }
 @media (min-width: 1024px) {
-  .section-padding { padding: 5.5rem 5rem; }
+  .section-padding { padding: 5.5rem 5rem 3.5rem; }
 }
