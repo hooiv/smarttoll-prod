@@ -3,10 +3,9 @@ import time
 import threading
 from contextlib import contextmanager
 
-import psycopg2
 from psycopg2 import pool as psycopg2_pool
 from psycopg2 import OperationalError as Psycopg2OpError
-from psycopg2.extras import RealDictCursor # Use dict cursors for easier access
+from psycopg2.extras import RealDictCursor  # Use dict cursors for easier access
 
 from app.config import settings
 
@@ -42,7 +41,7 @@ def _initialize_db_pool():
         log.error(f"PostgreSQL pool initialization failed: {e}")
         _db_pool = None # Ensure pool is None if failed
         raise # Re-raise to signal failure
-    except Exception as e:
+    except Exception:
         log.exception("Unexpected error initializing PostgreSQL pool.")
         _db_pool = None
         raise
@@ -125,7 +124,7 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
         log.error(f"Database operational error during geofence check: {db_err}", exc_info=True)
         # Depending on policy, maybe return None or raise a specific exception
         return None # Fail safe - assume outside zone if DB error occurs
-    except Exception as e:
+    except Exception:
         log.exception(f"Unexpected error during geofence check for ({latitude}, {longitude}).")
         return None # Fail safe
 

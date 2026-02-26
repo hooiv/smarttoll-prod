@@ -33,7 +33,7 @@ def _initialize_redis_client():
         log.error(f"Redis connection failed: {e}")
         _redis_client = None
         raise
-    except Exception as e:
+    except Exception:
         log.exception("Unexpected error initializing Redis client.")
         _redis_client = None
         raise
@@ -100,7 +100,7 @@ def get_vehicle_state(vehicle_id: str) -> Optional[VehicleState]:
          except Exception as del_e:
               log.error(f"Failed to delete corrupted key {redis_key}: {del_e}")
          return None
-    except Exception as e:
+    except Exception:
         # Catch Pydantic validation errors or other issues
         log.exception(f"Error getting/parsing state for {vehicle_id} from Redis key {redis_key}.")
         return None
@@ -132,7 +132,7 @@ def update_vehicle_state(vehicle_id: str, state: Optional[VehicleState]):
     except (RedisConnectionError, RedisTimeoutError) as e:
         log.error(f"Redis connection/timeout error updating state for {vehicle_id}: {e}")
         return False
-    except Exception as e:
+    except Exception:
         log.exception(f"Error updating state for {vehicle_id} in Redis.")
         return False
 

@@ -97,8 +97,8 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
                  try:
                      consumer.commit()
                      log.warning(f"Committed offset {message.offset} after unhandled processing exception to avoid blocking.")
-                 except Exception:
-                      log.error(f"Failed to commit Kafka offset {message.offset} after processing exception.", exc_info=True)
+                 except Exception as commit_exc:
+                      log.error(f"Failed to commit Kafka offset {message.offset} after processing exception: {commit_exc}", exc_info=True)
 
     except ValidationError as e:
         log.warning(f"Invalid TollEvent format received at offset {message.offset}. Error: {e.errors()}. Message: {message.value}")
@@ -107,8 +107,8 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
         try:
             consumer.commit()
             log.debug(f"Committed offset {message.offset} for invalid message.")
-        except Exception:
-             log.error(f"Failed to commit Kafka offset {message.offset} for invalid message.", exc_info=True)
+        except Exception as commit_exc:
+             log.error(f"Failed to commit Kafka offset {message.offset} for invalid message: {commit_exc}", exc_info=True)
     except Exception:
         # Catch errors like JSON decoding issues (if deserializer fails) or others
         log.exception(f"Critical error handling message at offset {message.offset}.")
@@ -118,5 +118,5 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
         try:
             consumer.commit()
             log.warning(f"Committed offset {message.offset} after critical error to avoid partition blocking.")
-        except Exception:
-            log.error(f"Failed to commit Kafka offset {message.offset} after critical error.", exc_info=True)
+        except Exception as commit_exc:
+            log.error(f"Failed to commit Kafka offset {message.offset} after critical error: {commit_exc}", exc_info=True)

@@ -1,9 +1,8 @@
 import logging
 import signal
 import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 
 from kafka.errors import KafkaError
 
@@ -120,7 +119,7 @@ def main_consumer_loop():
                              log.error(f"Failed to commit Kafka offsets: {e}", exc_info=True)
                              # This is serious - may lead to reprocessing. Consider shutdown/alerting.
                              # running = False # Optional: trigger shutdown on commit failure
-                        except Exception as e:
+                        except Exception:
                              log.exception("Unexpected error during Kafka commit.")
                              # running = False
 
@@ -130,7 +129,7 @@ def main_consumer_loop():
                  log.error(f"Kafka error during poll/consume loop: {e}", exc_info=True)
                  # Depending on error, might need to re-initialize consumer or back off
                  time.sleep(5) # Basic backoff
-            except Exception as e:
+            except Exception:
                  log.exception("Unhandled exception in consumer loop.")
                  # Consider if this should trigger shutdown
                  time.sleep(1) # Prevent tight loop on unexpected errors

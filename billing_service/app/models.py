@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, String, Numeric, DateTime, Index
 from sqlalchemy.sql import func
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
-import uuid
 import datetime
 import time
 
