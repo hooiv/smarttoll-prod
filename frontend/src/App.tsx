@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useInView } from 'framer-motion'
 import {
-  Activity, ArrowUpRight, BarChart3,
-  Car, CheckCircle2, ChevronRight, Clock, CloudLightning, Code2,
-  Cpu, Database, ExternalLink, Globe,
-  Lock, Map, Menu, Navigation, Network,
-  RefreshCw, Server, Shield, Terminal, TrendingUp, X, Zap
+  Activity, ArrowUpRight, Banknote, Cable, Calculator, ChevronRight, Code2,
+  Compass, Crosshair, ExternalLink, Fingerprint, Gauge,
+  History, KeyRound, LineChart, MapPin, Menu, Navigation,
+  Receipt, Rocket, Route, ScanLine, ShieldAlert, ShieldCheck, Signal,
+  Terminal, Timer, X
 } from 'lucide-react'
 
 const FadeIn = ({ children, delay = 0, direction = 'up' }: { children: React.ReactNode; delay?: number; direction?: 'up' | 'left' | 'right' | 'none' }) => {
@@ -102,10 +102,10 @@ function Navbar() {
 }
 
 const PIPELINE_STEPS = [
-  { step: '01', label: 'GPS Ingestion', value: 'lat=40.714, lon=-74.006', color: '#3b82f6', icon: <Navigation className="w-3.5 h-3.5" /> },
-  { step: '02', label: 'Zone Detection', value: 'Zone1 ENTERED ✓', color: '#06b6d4', icon: <Map className="w-3.5 h-3.5" /> },
-  { step: '03', label: 'Toll Calculated', value: '$2.50 · 0.82 km', color: '#22c55e', icon: <Zap className="w-3.5 h-3.5" /> },
-  { step: '04', label: 'Payment Processed', value: 'TXN-8821 · SUCCESS', color: '#8b5cf6', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  { step: '01', label: 'GPS Ingestion', value: 'lat=40.714, lon=-74.006', color: '#3b82f6', icon: <MapPin className="w-3.5 h-3.5" /> },
+  { step: '02', label: 'Zone Detection', value: 'Zone1 ENTERED ✓', color: '#06b6d4', icon: <Crosshair className="w-3.5 h-3.5" /> },
+  { step: '03', label: 'Toll Calculated', value: '$2.50 · 0.82 km', color: '#22c55e', icon: <Calculator className="w-3.5 h-3.5" /> },
+  { step: '04', label: 'Payment Processed', value: 'TXN-8821 · SUCCESS', color: '#8b5cf6', icon: <Banknote className="w-3.5 h-3.5" /> },
 ]
 
 function Hero() {
@@ -183,7 +183,7 @@ function Hero() {
         animate={{ y: [0, 8, 0] }} transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)' }}>
-            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+            <ShieldCheck className="w-4 h-4 text-cyan-400" />
           </div>
           <div>
             <p className="text-xs text-white/40 font-mono">Payment Success</p>
@@ -244,12 +244,12 @@ function Hero() {
 
 function MarqueeBar() {
   const items = [
-    { icon: <Zap className="w-3.5 h-3.5" />, text: '< 5ms GPS Processing Latency' },
-    { icon: <Shield className="w-3.5 h-3.5" />, text: 'PostGIS Spatial Geofencing' },
-    { icon: <Activity className="w-3.5 h-3.5" />, text: 'Kafka Event Streaming' },
-    { icon: <Database className="w-3.5 h-3.5" />, text: 'Redis State Management' },
-    { icon: <CheckCircle2 className="w-3.5 h-3.5" />, text: 'Idempotent Transactions' },
-    { icon: <BarChart3 className="w-3.5 h-3.5" />, text: 'Prometheus Observability' },
+    { icon: <Gauge className="w-3.5 h-3.5" />, text: '< 5ms GPS Processing Latency' },
+    { icon: <Crosshair className="w-3.5 h-3.5" />, text: 'PostGIS Spatial Geofencing' },
+    { icon: <Cable className="w-3.5 h-3.5" />, text: 'Kafka Event Streaming' },
+    { icon: <Timer className="w-3.5 h-3.5" />, text: 'Redis State Management' },
+    { icon: <Fingerprint className="w-3.5 h-3.5" />, text: 'Idempotent Transactions' },
+    { icon: <LineChart className="w-3.5 h-3.5" />, text: 'Prometheus Observability' },
   ]
   const doubled = [...items, ...items]
   return (
@@ -269,13 +269,13 @@ function MarqueeBar() {
 
 function Architecture() {
   const services = [
-    { icon: <Car className="w-6 h-6" />, name: 'OBU Simulator', color: '#3b82f6',
+    { icon: <Signal className="w-6 h-6" />, name: 'OBU Simulator', color: '#3b82f6',
       description: 'Simulates vehicle GPS data along NYC routes, publishing to Kafka at configurable intervals.',
       tags: ['GPS', 'Kafka Producer', 'NYC Route'], metric: '1 vehicle/s', metricLabel: 'event rate' },
-    { icon: <Cpu className="w-6 h-6" />, name: 'Toll Processor', color: '#06b6d4',
+    { icon: <ScanLine className="w-6 h-6" />, name: 'Toll Processor', color: '#06b6d4',
       description: 'Consumes GPS stream, runs PostGIS geofence detection, calculates Haversine tolls, publishes events.',
       tags: ['PostGIS', 'Redis', 'Haversine'], metric: '< 5ms', metricLabel: 'avg latency' },
-    { icon: <Server className="w-6 h-6" />, name: 'Billing Service', color: '#8b5cf6',
+    { icon: <Receipt className="w-6 h-6" />, name: 'Billing Service', color: '#8b5cf6',
       description: 'Idempotent payment processing, REST API with Swagger, Prometheus metrics, distributed tracing.',
       tags: ['FastAPI', 'PostgreSQL', 'REST API'], metric: '99.1%', metricLabel: 'success rate' },
   ]
@@ -297,7 +297,7 @@ function Architecture() {
             <FadeIn key={svc.name} delay={i * 0.15}>
               <div className="card-glass card-hover rounded-2xl p-6 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${svc.color}` }}>
                 <div className="flex items-start justify-between mb-6">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${svc.color}20`, border: `1px solid ${svc.color}30` }}>
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${svc.color}20`, border: `1px solid ${svc.color}35`, boxShadow: `0 0 18px ${svc.color}25` }}>
                     <span style={{ color: svc.color }}>{svc.icon}</span>
                   </div>
                   <div className="text-right">
@@ -322,10 +322,10 @@ function Architecture() {
             <p className="text-xs font-semibold uppercase tracking-widest text-white/30 mb-6">Shared Infrastructure</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { icon: <CloudLightning className="w-5 h-5" />, name: 'Apache Kafka', desc: 'Event streaming', color: '#f59e0b' },
-                { icon: <Database className="w-5 h-5" />, name: 'PostgreSQL + PostGIS', desc: 'Spatial database', color: '#22c55e' },
-                { icon: <Zap className="w-5 h-5" />, name: 'Redis', desc: 'Vehicle state cache', color: '#ef4444' },
-                { icon: <BarChart3 className="w-5 h-5" />, name: 'Prometheus', desc: 'Metrics + alerting', color: '#e87d14' },
+                { icon: <Cable className="w-5 h-5" />, name: 'Apache Kafka', desc: 'Event streaming', color: '#f59e0b' },
+                { icon: <Compass className="w-5 h-5" />, name: 'PostgreSQL + PostGIS', desc: 'Spatial database', color: '#22c55e' },
+                { icon: <Timer className="w-5 h-5" />, name: 'Redis', desc: 'Vehicle state cache', color: '#ef4444' },
+                { icon: <LineChart className="w-5 h-5" />, name: 'Prometheus', desc: 'Metrics + alerting', color: '#e87d14' },
               ].map((infra) => (
                 <div key={infra.name} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${infra.color}15` }}>
@@ -443,10 +443,10 @@ function KernelLog() {
 
 function Stats() {
   const statsData = [
-    { value: '< 5ms', label: 'GPS Processing Latency', desc: 'Kafka → PostGIS → Redis round trip', icon: <Zap className="w-5 h-5" />, color: '#3b82f6' },
-    { value: '99.1%', label: 'Payment Success Rate', desc: 'MOCK gateway, idempotent retries', icon: <CheckCircle2 className="w-5 h-5" />, color: '#22c55e' },
-    { value: '6 hr', label: 'Vehicle State TTL', desc: 'Redis key expiry per vehicle', icon: <Clock className="w-5 h-5" />, color: '#06b6d4' },
-    { value: '∞', label: 'Event Replay', desc: 'Kafka auto_offset_reset=earliest', icon: <Activity className="w-5 h-5" />, color: '#8b5cf6' },
+    { value: '< 5ms', label: 'GPS Processing Latency', desc: 'Kafka → PostGIS → Redis round trip', icon: <Gauge className="w-5 h-5" />, color: '#3b82f6' },
+    { value: '99.1%', label: 'Payment Success Rate', desc: 'MOCK gateway, idempotent retries', icon: <ShieldCheck className="w-5 h-5" />, color: '#22c55e' },
+    { value: '6 hr', label: 'Vehicle State TTL', desc: 'Redis key expiry per vehicle', icon: <Timer className="w-5 h-5" />, color: '#06b6d4' },
+    { value: '∞', label: 'Event Replay', desc: 'Kafka auto_offset_reset=earliest', icon: <History className="w-5 h-5" />, color: '#8b5cf6' },
   ]
   return (
     <section style={{ background: '#050810', borderTop: '1px solid rgba(59,130,246,0.1)', borderBottom: '1px solid rgba(59,130,246,0.1)' }}>
@@ -454,7 +454,7 @@ function Stats() {
         {statsData.map((stat, i) => (
           <FadeIn key={stat.label} delay={i * 0.1}>
             <div className="p-7 md:p-9 flex flex-col gap-2" style={{ borderRight: '1px solid rgba(255,255,255,0.04)' }}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${stat.color}15`, color: stat.color }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${stat.color}15`, color: stat.color, border: `1px solid ${stat.color}30`, boxShadow: `0 0 12px ${stat.color}20` }}>
                 {stat.icon}
               </div>
               <p className="text-3xl md:text-4xl font-black tracking-tighter mt-1" style={{ color: stat.color }}>{stat.value}</p>
@@ -521,21 +521,21 @@ function ApiSection() {
             <div className="space-y-4">
               {[
                 {
-                  icon: <Lock className="w-6 h-6" />,
+                  icon: <KeyRound className="w-6 h-6" />,
                   color: '#3b82f6',
                   title: 'API Key Auth',
                   tag: 'HMAC · constant-time',
                   desc: <>Constant-time key comparison prevents timing attacks. Set via <code className="font-mono text-xs" style={{ color: '#60a5fa' }}>SERVICE_API_KEY</code> env var.</>,
                 },
                 {
-                  icon: <Network className="w-6 h-6" />,
+                  icon: <Route className="w-6 h-6" />,
                   color: '#06b6d4',
                   title: 'Request Tracing',
                   tag: 'X-Request-ID',
                   desc: <>Every response carries a <code className="font-mono text-xs" style={{ color: '#22d3ee' }}>X-Request-ID</code> header — correlate logs across all three services instantly.</>,
                 },
                 {
-                  icon: <TrendingUp className="w-6 h-6" />,
+                  icon: <LineChart className="w-6 h-6" />,
                   color: '#8b5cf6',
                   title: 'Prometheus Metrics',
                   tag: '/metrics · scrape',
@@ -574,16 +574,16 @@ function ApiSection() {
 
 function About() {
   const features = [
-    { icon: <Map className="w-7 h-7" />, color: '#3b82f6', title: 'Geospatial Intelligence',
+    { icon: <Crosshair className="w-7 h-7" />, color: '#3b82f6', title: 'Geospatial Intelligence',
       tag: 'PostGIS · GiST Index',
       desc: 'ST_Contains with GiST spatial indexes delivers sub-millisecond zone entry/exit detection across thousands of toll zones.' },
-    { icon: <RefreshCw className="w-7 h-7" />, color: '#ef4444', title: 'Fault Tolerance',
+    { icon: <ShieldAlert className="w-7 h-7" />, color: '#ef4444', title: 'Fault Tolerance',
       tag: 'Kafka · auto_offset_reset',
       desc: 'Consumer restarts replay from the earliest unprocessed offset — zero event loss, no manual intervention.' },
-    { icon: <CheckCircle2 className="w-7 h-7" />, color: '#22c55e', title: 'Idempotency',
+    { icon: <Fingerprint className="w-7 h-7" />, color: '#22c55e', title: 'Idempotency',
       tag: 'toll_event_id · dedup',
       desc: 'Every billing transaction is keyed on toll_event_id. Duplicate GPS bursts never produce duplicate charges.' },
-    { icon: <Globe className="w-7 h-7" />, color: '#f59e0b', title: 'Deploy Anywhere',
+    { icon: <Rocket className="w-7 h-7" />, color: '#f59e0b', title: 'Deploy Anywhere',
       tag: 'Docker · K8s · ECS · Fly.io',
       desc: 'One Compose file for local dev. Health probes and Prometheus scrape endpoints make it production-ready on any orchestrator.' },
   ]
