@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Initialize Logging and Config first
 from app.config import settings  # noqa F401
@@ -18,6 +21,17 @@ from app import consumer, kafka_client, database, models  # noqa F401
 log = logging.getLogger(__name__)
 
 consumer_task: Optional[asyncio.Task] = None
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attaches a unique X-Request-ID to every request/response for distributed tracing."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
 
 
 @asynccontextmanager
@@ -71,6 +85,18 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# CORS — allow any origin by default (restrict via CORS_ORIGINS env var in production)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+# Attach a unique X-Request-ID to every request/response for distributed tracing
+app.add_middleware(RequestIDMiddleware)
 
 # Wire up Prometheus metrics at /metrics
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")

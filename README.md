@@ -8,291 +8,174 @@ SmartToll consists of three main components:
 
 1. **OBU Simulator**: Generates simulated GPS data from vehicles and publishes it to Kafka.
 2. **Toll Processor**: Processes real-time GPS data, detects when vehicles enter/exit toll zones, and calculates toll charges.
-3. **Billing Service**: Handles toll event processing, payment processing, and provides a REST API for transaction status.
+3. **Billing Service**: Handles toll event consumption, payment processing, and provides a REST API for transaction status.
 
 ## Tech Stack
 
-- **Messaging**: Apache Kafka
-- **Cache**: Redis
-- **Database**: PostgreSQL with PostGIS extension
-- **API**: FastAPI (Billing Service)
+- **Messaging**: Apache Kafka (with Zookeeper)
+- **Cache**: Redis 7
+- **Database**: PostgreSQL 15 with PostGIS extension
+- **API**: FastAPI + Uvicorn (Billing Service)
+- **Observability**: Prometheus metrics on every service
 - **Container Orchestration**: Docker Compose
 
 ## Prerequisites
 
-- Python 3.9+ installed
-- Docker & Docker Compose (v1.29+)
-- Access to Kafka, Zookeeper, Redis, and Postgres (local via Compose or remote)
+- Docker & Docker Compose v2 (`docker compose` CLI)
+- Python 3.11+ (only needed for local non-Docker development)
+
+## Quick Start (Docker Compose)
+
+```bash
+# 1. Create .env from the template
+cp .env.example .env
+
+# 2. Build and start all services (single command — reliable from a cold start)
+docker compose up -d
+
+# 3. Verify all 7 services are healthy
+docker compose ps
+```
+
+Services are available at:
+
+| Service | URL |
+|---|---|
+| Billing API (Swagger UI) | http://localhost:8001/docs |
+| Billing liveness | http://localhost:8001/api/v1/health/live |
+| Billing readiness | http://localhost:8001/api/v1/health/ready |
+| Billing Prometheus metrics | http://localhost:8001/metrics |
+| Toll Processor liveness | http://localhost:8080/health/live |
+| Toll Processor Prometheus metrics | http://localhost:8081/ |
 
 ## Environment Variables
 
-Create `.env` files in each service directory (`billing_service/` and `toll_processor/`) with:
+All configuration lives in the root `.env` file. See `.env.example` for the full list with documentation. Key variables:
 
-```
-# Common settings
-BIND_HOST=0.0.0.0
-BIND_PORT=8001
-LOG_LEVEL=INFO
-
-# Kafka
-KAFKA_BOOTSTRAP_SERVERS=localhost:9093
-TOLL_EVENT_TOPIC=smarttoll.toll.events.v1
-GPS_TOPIC=smarttoll.gps.raw.v1
-PAYMENT_TOPIC=smarttoll.payment.events.v1
-
+```ini
 # Postgres
-DB_HOST=localhost
-DB_PORT=5433
-DB_NAME=test_smarttoll
-DB_USER=test_user
-DB_PASSWORD=test_password
+POSTGRES_DB=smarttoll_dev
+POSTGRES_USER=smarttoll_user
+POSTGRES_PASSWORD=changeme_in_prod_123!
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6380
-
-# API Auth (billing_service only)
+# Billing API authentication (required)
 SERVICE_API_KEY=supersecretapikey123
+
+# Optional tuning
+LOG_LEVEL=INFO
+MOCK_PAYMENT_FAIL_RATE=0.1   # 0.0 = always succeed, 1.0 = always fail
 ```
 
-## Configuration for Docker Compose
+## Running Locally (Without Docker)
 
-SmartToll uses a top-level `.env` file to supply environment variables to all services (Postgres, Redis, Kafka, etc.) when running with Docker Compose. Follow these steps:
-
-1. Create a `.env` file in the project root by copying the template:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Fill in the required variables in `.env`:
-   ```ini
-   # Postgres (used by both toll_processor and billing_service)
-   POSTGRES_DB=smarttoll_dev
-   POSTGRES_USER=smarttoll_user
-   POSTGRES_PASSWORD=changeme_in_prod_123!
-
-   # Redis (used by toll_processor)
-   REDIS_HOST=redis
-   REDIS_PORT=6379
-   REDIS_DB=0
-
-   # Kafka (used by all services)
-   KAFKA_BROKER=kafka:29092
-   GPS_TOPIC=smarttoll.gps.raw.v1
-   TOLL_EVENT_TOPIC=smarttoll.toll.events.v1
-   PAYMENT_EVENT_TOPIC=smarttoll.payment.events.v1
-   CONSUMER_GROUP_ID=toll_processor_group_dev_1
-   BILLING_CONSUMER_GROUP_ID=billing_service_group_dev_1
-
-   # Billing Service binding
-   BIND_HOST=0.0.0.0
-   BIND_PORT=8000
-
-   # API authentication
-   SERVICE_API_KEY=supersecretapikey123
-   ```
-
-3. (Optional) You can also place service-specific overrides in `billing_service/.env` or `toll_processor/.env`, but the root `.env` is sufficient for Compose.
-
-4. Run Docker Compose as usual:
-   ```bash
-   docker-compose up -d
-   ```
-
-With these settings, Docker Compose will inject all variables into every container that references them.
-
-## Getting Started
-
-### Running Locally (Development)
-
-1. In one terminal, start infrastructure:
-   ```bash
-   docker-compose -f tests/integration/docker-compose.integration.yml up -d
-   ```
-2. Install Python dependencies:
-   ```bash
-   cd billing_service
-   pip install -r requirements.txt -r requirements-dev.txt
-   cd ../toll_processor
-   pip install -r requirements.txt -r requirements-dev.txt
-   ```
-3. Start services:
-   - Billing Service:
-     ```bash
-     cd billing_service
-     uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
-     ```
-   - Toll Processor:
-     ```bash
-     cd toll_processor
-     python -m app.main
-     ```
-4. Verify health and metrics:
-   - Toll Processor liveness: `http://localhost:8080/health/live`
-   - Toll Processor readiness: `http://localhost:8080/health/ready`
-   - Toll Processor metrics: `http://localhost:8081/`
-   - Billing Service liveness: `http://localhost:8001/api/v1/health/live`
-   - Billing Service readiness: `http://localhost:8001/api/v1/health/ready`
-
-### Running Integration Tests
-
-From the project root:
+### Linux / macOS
 ```bash
-pip install -r requirements-dev.txt
-pytest
+cp .env.example .env
+docker compose up -d zookeeper kafka redis postgres   # infrastructure only
+./run_local.sh                                        # Python services in background
 ```
-Pytest will spin up the test Compose stack automatically via `pytest.ini` and `pytest-docker`.
 
-### Docker Compose (Production)
+### Windows (PowerShell)
+```powershell
+Copy-Item .env.example .env
+docker compose up -d zookeeper kafka redis postgres
+.\run_local.ps1
+```
 
-A top-level `docker-compose.yml` is provided. To build and run:
+## Running Unit Tests
 
 ```bash
-docker-compose build billing_service toll_processor
-docker-compose up -d
+# Using the Makefile (recommended)
+make test
+
+# Or directly from each service directory
+cd billing_service && pytest tests/ -v
+cd toll_processor  && pytest tests/ -v
 ```
 
-Services will be available on ports 8001 (billing) and 8080/8081 (toll processor).
+## Running Integration Tests
 
-### Deploying to Production
+```bash
+# Using the Makefile — starts the stack, waits, runs tests, then tears down
+make test-integration
 
-1. Push images to your container registry:
+# Or manually
+docker compose -f tests/integration/docker-compose.integration.yml up -d
+sleep 30  # wait for services to be healthy
+pytest tests/integration/ -v
+docker compose -f tests/integration/docker-compose.integration.yml down
+```
+
+## Deploying to Production
+
+1. Push images to your registry:
    ```bash
-   docker tag billing_service my-registry/billing_service:latest
-   docker push my-registry/billing_service:latest
-   docker tag toll_processor my-registry/toll_processor:latest
-   docker push my-registry/toll_processor:latest
+   docker tag smarttoll-prod-billing_service  my-registry/billing_service:1.0.0
+   docker tag smarttoll-prod-toll_processor   my-registry/toll_processor:1.0.0
+   docker push my-registry/billing_service:1.0.0
+   docker push my-registry/toll_processor:1.0.0
    ```
-2. Provision infrastructure (Kubernetes/ECS/VM + Compose) with external Kafka/Redis/Postgres instances.
-3. Apply your orchestration manifests or Helm charts; configure liveness/readiness probes on the HTTP endpoints and Prometheus scraping on `/metrics`.
-4. Monitor logs and metrics via Prometheus/Grafana.
-
-### Deploying for Free
-
-SmartToll can run at zero cost by combining Fly.io’s free tier with free managed data services:
-
-1. Install and authenticate Fly.io CLI:
-   ```bash
-   # macOS (Homebrew) or Windows (Scoop/winget)
-   brew install superfly/tap/flyctl  # or `winget install Fly.io.Flyctl`
-   flyctl auth signup                # register an account
-   flyctl auth login                 # login interactively
-   ```
-
-2. Provision managed data services:
-   - PostgreSQL: ElephantSQL “Tiny Turtle” plan (free) → copy your `DATABASE_URL`.
-   - Redis: Redis Enterprise Cloud “Essentials” (free) → copy your `REDIS_URL`.
-   - Kafka: CloudKarafka “Trial” cluster (free) → copy your `KAFKA_BROKER` URL.
-
-3. Configure secrets on Fly:
-   ```bash
-   flyctl secrets set \
-     DATABASE_URL="<your_postgres_url>" \
-     REDIS_URL="<your_redis_url>" \
-     KAFKA_BROKER="<your_kafka_url>" \
-     POSTGRES_PASSWORD="<db_password>" \
-     # any other SERVICE_API_KEY or custom vars
-   ```
-
-4. Launch and deploy services:
-
-   # Billing Service
-   ```bash
-   cd billing_service
-   flyctl launch \
-     --name smarttoll-billing \
-     --region ord \
-     --dockerfile Dockerfile \
-     --no-deploy      # scaffold a new app without immediate deploy
-   flyctl deploy     # builds & deploys billing service
-   ```
-
-   # Toll Processor
-   ```bash
-   cd ../toll_processor
-   flyctl launch \
-     --name smarttoll-processor \
-     --region ord \
-     --dockerfile Dockerfile \
-     --no-deploy
-   flyctl deploy     # builds & deploys toll processor
-   ```
-
-5. Access your live services:
-   - Billing API
-   - Processor health
-
-6. (Optional) Add Prometheus metrics and custom domains via `flyctl services create`.
-
-You can also use Railway.app, Render.com or other free-tier hosts—just adjust the steps above to their CLI and secrets/config UI.
+2. Provision external Kafka, Redis, and PostgreSQL (PostGIS) instances.
+3. Deploy with your orchestrator (Kubernetes, ECS, Fly.io, …):
+   - **Liveness** probe: `GET /api/v1/health/live` (billing) or `GET /health/live` (processor)
+   - **Readiness** probe: `GET /api/v1/health/ready` (billing) or `GET /health/ready` (processor)
+   - **Prometheus** scrape: `/metrics` (billing, port 8000) or port `8081` (processor)
+4. Set all required env vars as secrets in your orchestrator.
 
 ---
 
 ## Architecture Diagram
 
-Below is a high-level architecture diagram of the SmartToll system:
-
 ```
-+----------------+      +----------------+      +-------------------+
-|  OBU Simulator | ---> |  Kafka Broker  | ---> |   Toll Processor  |
-+----------------+      +----------------+      +-------------------+
-                                                    |
-                                                    v
-                                         +-------------------+
-                                         |   Redis Cache     |
-                                         +-------------------+
-                                                    |
-                                                    v
-                                         +-------------------+
-                                         | Postgres+PostGIS  |
-                                         +-------------------+
-                                                    |
-                                                    v
-                                         +-------------------+
-                                         | Billing Service   |
-                                         +-------------------+
++----------------+      +-------------------+      +-------------------+
+|  OBU Simulator | ---> |   Kafka Broker    | ---> |   Toll Processor  |
++----------------+      |  (GPS raw topic)  |      |  (geofence logic) |
+                         +-------------------+      +--------+----------+
+                                |                            |
+                         (toll events topic)        Redis (vehicle state)
+                                |                  Postgres+PostGIS (zones)
+                         +------v------------+
+                         |  Billing Service  |
+                         |  (FastAPI + async |
+                         |   Kafka consumer) |
+                         +-------------------+
+                                |
+                         Postgres (billing_transactions)
 ```
 
 ---
 
-## API Documentation
+## API Reference
 
-The Billing Service exposes a REST API documented with OpenAPI/Swagger. Once the service is running, you can access the interactive API docs at:
+The Billing Service exposes a REST API documented with OpenAPI/Swagger:
 
-- Swagger UI: [http://localhost:8001/docs](http://localhost:8001/docs)
-- ReDoc: [http://localhost:8001/redoc](http://localhost:8001/redoc)
+- **Swagger UI**: http://localhost:8001/docs
+- **ReDoc**: http://localhost:8001/redoc
 
-### Example Endpoints
-- `GET /api/v1/health/live` — Liveness probe
-- `GET /api/v1/health/ready` — Readiness probe
-- `GET /api/v1/transactions/status/{toll_event_id}` — Get billing transaction status
+All `*/transactions*` endpoints require the `X-API-KEY` request header.
+Every response includes an `X-Request-ID` header for distributed tracing.
 
-The API is protected by an API key (see `SERVICE_API_KEY` in your environment variables). Pass it in the `X-API-KEY` header.
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/health/live` | — | Liveness probe |
+| GET | `/api/v1/health/ready` | — | Readiness probe (checks DB + Kafka consumer) |
+| GET | `/api/v1/version` | — | Service version |
+| GET | `/api/v1/transactions` | ✓ | List transactions (filter by `vehicle_id`, `status`; paginated) |
+| GET | `/api/v1/transactions/{id}` | ✓ | Get transaction by internal ID |
+| GET | `/api/v1/transactions/status/{toll_event_id}` | ✓ | Get transaction by Toll Event ID |
+| GET | `/metrics` | — | Prometheus metrics |
+
+Transaction responses include: `id`, `toll_event_id`, `vehicle_id`, `amount`, `currency`, `status`, `retry_count`, `transaction_time`, `last_updated`, `payment_gateway_ref`, `error_message`.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! To get started:
-
-1. Fork the repository and clone your fork.
-2. Create a new branch for your feature or bugfix.
-3. Install development dependencies:
-   ```bash
-   pip install -r requirements-dev.txt
-   ```
-4. Run tests locally before submitting a PR:
-   ```bash
-   pytest
-   ```
-5. Ensure your code follows PEP8 and includes docstrings and type hints where appropriate.
-6. Open a pull request with a clear description of your changes.
-
----
-
-## Contact & Support
-
-For questions, issues, or feature requests, please open an issue on GitHub or contact the maintainer.
+1. Fork the repository and create a feature branch.
+2. Install dev dependencies: `pip install -r requirements-dev.txt`
+3. Run unit tests: `cd billing_service && pytest tests/ -v`
+4. Ensure code follows PEP 8 with type hints and docstrings.
+5. Open a pull request with a clear description.
 
 ---
 
@@ -300,26 +183,23 @@ For questions, issues, or feature requests, please open an issue on GitHub or co
 
 ### OBU Simulator
 
-Simulates a vehicle's On-Board Unit sending GPS data along a predefined route. The simulator sends data to Kafka and can be configured via environment variables.
+Simulates a vehicle's OBU sending GPS data along a predefined NYC route (lat 40.700→40.720, lon -74.010→-74.000) that passes through **Zone1** (seeded automatically by the Toll Processor on startup).
 
 ### Toll Processor
 
-Stateless service that:
 - Consumes GPS data from Kafka
-- Maintains vehicle state in Redis
-- Detects toll zone entry/exit using PostGIS
-- Calculates toll charges based on distance traveled
+- Maintains vehicle state in Redis (6-hour TTL)
+- Detects zone entry/exit using PostGIS `ST_Contains` (spatial GiST index on `toll_zones.geom`)
+- Validates GPS timestamps (rejects messages older than 10 min or more than 60 s in the future)
+- Calculates toll charges using the Haversine formula
 - Publishes toll events to Kafka
+- Exposes HTTP health/readiness and Prometheus metrics
 
 ### Billing Service
 
-REST API service that:
-- Consumes toll events from Kafka
-- Processes payments via a payment gateway
-- Stores transaction records in PostgreSQL
-- Provides API endpoints for querying transaction status
-
-## Configuration
-
-Environment variables can be set in the `.env` file or passed directly to Docker Compose.
-
+- Consumes toll events from Kafka (`auto_offset_reset=earliest` — no events lost during restarts)
+- Creates billing transactions with idempotency (deduplication by `toll_event_id`)
+- Processes payments via configurable gateway (mock by default)
+- Tracks `retry_count` per transaction; `last_updated` auto-managed by a DB trigger
+- REST API with constant-time API key auth, CORS middleware, and `X-Request-ID` tracing header
+- Prometheus metrics: transaction counters, payment duration histogram, Kafka consumer throughput

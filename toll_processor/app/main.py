@@ -1,15 +1,15 @@
 import logging
 import signal
 import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 
 from kafka.errors import KafkaError
 
 # Initialize logging and settings first
 from app.config import settings  # noqa F401
-from app import logging_config   # noqa F401
+from app.logging_config import setup_logging
+setup_logging()
 from app import kafka_client, database, state, processing, health_server, metrics
 from app.database import init_db_schema
 
@@ -49,18 +49,25 @@ def main_consumer_loop():
                 # Poll for messages with a timeout
                 message_pack = consumer.poll(timeout_ms=1000, max_records=100) # Adjust max_records based on processing time
 
-                if not message_pack and running:
+                # Mark ready after first SUCCESSFUL poll — even when the topic is idle.
+                # The old behaviour only set this flag when a message arrived, which meant
+                # the /health/ready endpoint always reported "Kafka not ready" in a quiet
+                # system despite the broker being fully reachable.
+                # Check-then-set: capture whether this is the first transition so the log
+                # line appears exactly once even if set() were called from multiple threads.
+                first_ready = not kafka_client.consumer_ready.is_set()
+                kafka_client.consumer_ready.set()  # idempotent
+                if first_ready:
+                    log.info("Kafka consumer marked as READY (first successful poll completed)")
+
+                if not message_pack:
                     # No messages, loop continues to check running flag
                     log.debug("No messages received in poll interval.")
                     continue
-                elif not running:
+
+                if not running:
                     log.info("Shutdown signal received during poll, exiting loop.")
                     break
-
-                if not kafka_client.consumer_ready.is_set():
-                    kafka_client.consumer_ready.set()
-                    log.info("Kafka consumer marked as READY (first batch received or poll succeeded)")
-                
                 for tp, messages in message_pack.items():
                     log.info(f"Processing batch of {len(messages)} messages from partition {tp.partition}")
                     commit_needed = False
@@ -112,7 +119,7 @@ def main_consumer_loop():
                              log.error(f"Failed to commit Kafka offsets: {e}", exc_info=True)
                              # This is serious - may lead to reprocessing. Consider shutdown/alerting.
                              # running = False # Optional: trigger shutdown on commit failure
-                        except Exception as e:
+                        except Exception:
                              log.exception("Unexpected error during Kafka commit.")
                              # running = False
 
@@ -122,7 +129,7 @@ def main_consumer_loop():
                  log.error(f"Kafka error during poll/consume loop: {e}", exc_info=True)
                  # Depending on error, might need to re-initialize consumer or back off
                  time.sleep(5) # Basic backoff
-            except Exception as e:
+            except Exception:
                  log.exception("Unhandled exception in consumer loop.")
                  # Consider if this should trigger shutdown
                  time.sleep(1) # Prevent tight loop on unexpected errors

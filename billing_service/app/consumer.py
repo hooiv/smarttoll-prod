@@ -1,12 +1,11 @@
 import asyncio
 import logging
-import json
 from kafka.consumer.fetcher import ConsumerRecord
 from sqlalchemy.orm import sessionmaker
 from pydantic import ValidationError
 
 from app.config import settings
-from app import models, billing, kafka_client, database # Relative imports
+from app import models, billing, kafka_client, database, metrics # Relative imports
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ async def consume_loop(db_session_factory: sessionmaker):
 
         log.info("Kafka consumer is ready.")
         consumer_ready.set()
-        log.info(f"consumer_ready event SET in consumer.py. is_set: {consumer_ready.is_set()}") # New log
 
         log.info(f"Starting consumption from topic '{settings.TOLL_EVENT_TOPIC}'...")
         while True:
@@ -36,6 +34,7 @@ async def consume_loop(db_session_factory: sessionmaker):
                 for tp, messages in msg_pack.items():
                     for message in messages:
                         log.info(f"Received message - Topic: {message.topic}, Partition: {message.partition}, Offset: {message.offset}")
+                        metrics.kafka_messages_received_total.inc()
                         await process_message(message, db_session_factory, consumer_client)
                 await asyncio.sleep(0.05) # Yield control back to Uvicorn's main loop
             except asyncio.CancelledError:
@@ -79,35 +78,45 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
                 if success:
                     try:
                         consumer.commit() # Commit offset for the partition this message came from
+                        metrics.kafka_messages_processed_total.inc()
                         log.debug(f"Committed offset {message.offset} for event {event_data.eventId}")
                     except Exception as commit_exc:
                          log.error(f"Failed to commit Kafka offset {message.offset} after processing event {event_data.eventId}: {commit_exc}", exc_info=True)
                          # This is problematic - risk of reprocessing. Alerting needed.
                 else:
+                     metrics.kafka_messages_error_total.inc()
                      log.error(f"Processing failed for event {event_data.eventId} at offset {message.offset}. Offset not committed.")
                      # Implement retry mechanism or dead-letter queue based on requirements
 
-            except Exception as processing_exc:
+            except Exception:
                  # Catch errors within the billing logic processing itself
-                 log.exception(f"Unhandled exception processing event {getattr(event_data,'eventId','N/A')} at offset {message.offset}.")
+                 log.exception(f"Unhandled exception processing event {getattr(event_data, 'eventId', 'N/A')} at offset {message.offset}.")
+                 metrics.kafka_messages_error_total.inc()
                  # Decide if offset should be committed (to skip) or not (to retry)
                  # Committing here to avoid poison pill messages blocking the partition
                  try:
                      consumer.commit()
                      log.warning(f"Committed offset {message.offset} after unhandled processing exception to avoid blocking.")
-                 except Exception as commit_exc_on_fail:
-                      log.error(f"Failed to commit Kafka offset {message.offset} after processing exception: {commit_exc_on_fail}", exc_info=True)
+                 except Exception as commit_exc:
+                      log.error(f"Failed to commit Kafka offset {message.offset} after processing exception: {commit_exc}", exc_info=True)
 
     except ValidationError as e:
         log.warning(f"Invalid TollEvent format received at offset {message.offset}. Error: {e.errors()}. Message: {message.value}")
-        # Publish to error topic?
-        # Commit offset to skip invalid message
+        metrics.kafka_messages_error_total.inc()
+        # Commit offset to skip the malformed message (poison pill prevention)
         try:
             consumer.commit()
             log.debug(f"Committed offset {message.offset} for invalid message.")
-        except Exception as commit_exc_on_invalid:
-             log.error(f"Failed to commit Kafka offset {message.offset} for invalid message: {commit_exc_on_invalid}", exc_info=True)
-    except Exception as outer_exc:
+        except Exception as commit_exc:
+             log.error(f"Failed to commit Kafka offset {message.offset} for invalid message: {commit_exc}", exc_info=True)
+    except Exception:
         # Catch errors like JSON decoding issues (if deserializer fails) or others
         log.exception(f"Critical error handling message at offset {message.offset}.")
-        # Decide whether to commit or not - likely not to allow retry if transient.
+        metrics.kafka_messages_error_total.inc()
+        # Commit the offset to prevent this message from permanently blocking the partition.
+        # The error has already been logged; retrying an undeserializable message will never succeed.
+        try:
+            consumer.commit()
+            log.warning(f"Committed offset {message.offset} after critical error to avoid partition blocking.")
+        except Exception as commit_exc:
+            log.error(f"Failed to commit Kafka offset {message.offset} after critical error: {commit_exc}", exc_info=True)
