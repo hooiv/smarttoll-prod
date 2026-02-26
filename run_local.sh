@@ -11,24 +11,24 @@ if [ ! -f .env ]; then
     echo "IMPORTANT: Edit .env with your Kafka / Redis / Postgres credentials if not using the default Docker Compose stack."
 fi
 
-# Helper: create venv + install deps + run a command in a service directory
+# Helper: create venv + install deps + start a service in the background
 start_service() {
     local dir="$1"
     local cmd="$2"
     local name="$3"
 
-    (
-        cd "$dir"
-        if [ ! -d venv ]; then
-            python3 -m venv venv
-        fi
-        # shellcheck source=/dev/null
-        source venv/bin/activate
-        pip install -q -r requirements.txt
-        echo "Starting ${name}..."
-        eval "$cmd" &
-        echo "${name} PID: $!"
-    )
+    cd "$dir"
+    if [ ! -d venv ]; then
+        python3 -m venv venv
+    fi
+    # shellcheck source=/dev/null
+    source venv/bin/activate
+    pip install -q -r requirements.txt
+    echo "Starting ${name}..."
+    eval "$cmd" &
+    local pid=$!
+    echo "${name} PID: ${pid}"
+    cd - > /dev/null
 }
 
 # 2. Start services in the background (infrastructure must already be running via docker compose)
