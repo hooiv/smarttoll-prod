@@ -28,6 +28,7 @@ help:
 	@echo "  make shell-processor     Open a shell in the toll processor container"
 	@echo "  make shell-db            Open a psql shell in the database container"
 	@echo "  make migrate             Run Alembic migrations inside the billing container"
+	@echo "  make lint                Run flake8 on both services"
 
 # ---- Docker Compose ----
 
@@ -100,3 +101,13 @@ shell-db:
 
 migrate:
 	docker compose exec billing_service alembic upgrade head
+
+# ---- Linting ----
+
+lint:
+	@echo "=== Linting billing_service ==="
+	flake8 billing_service/app --max-line-length=120 --extend-ignore=E501,W503 || true
+	@echo "=== Linting toll_processor ==="
+	flake8 toll_processor/app --max-line-length=120 --extend-ignore=E501,W503 || true
+	@echo "=== Linting obu_simulator ==="
+	flake8 obu_simulator --max-line-length=120 --extend-ignore=E501,W503 || true

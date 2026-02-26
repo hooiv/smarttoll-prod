@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status as http_sta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
 
-from app import database, models, kafka_client, consumer
+from app import database, models, consumer
 from app.security import verify_api_key
 
 log = logging.getLogger(__name__)

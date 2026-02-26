@@ -89,7 +89,6 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
             currency=new_tx.currency
         )
         # If process_payment returns without exception, it's a success
-        payment_success = True
         final_status = "SUCCESS"
         metrics.payment_success_total.inc()
         log.info(f"Payment successful for TxID={tx_id}. Gateway Ref: {gateway_ref}")
