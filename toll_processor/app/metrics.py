@@ -35,6 +35,12 @@ zone_entries_total = Counter(
     labelnames=['zone_id'],
 )
 
+zone_exits_total = Counter(
+    'toll_processor_zone_exits_total',
+    'Total number of toll zone exit events detected (each triggers a toll calculation)',
+    labelnames=['zone_id'],
+)
+
 toll_events_published_total = Counter(
     'toll_processor_toll_events_published_total',
     'Total number of toll events successfully published to Kafka',

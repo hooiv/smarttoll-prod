@@ -1,7 +1,7 @@
 import logging
 import time
-import json
-from typing import Dict, Any, Optional
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Dict, Any
 from math import radians, cos, sin, asin, sqrt
 
 from pydantic import ValidationError
@@ -65,6 +65,7 @@ def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float
 def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, exit_timestamp_ms: int, exit_lat: float, exit_lon: float):
     """Handles logic when a vehicle exits a zone, calculates toll, sends event."""
     log.info(f"Vehicle {vehicle_id} (Device: {device_id}) EXITED toll zone {last_state.zone_id}.")
+    metrics.zone_exits_total.labels(zone_id=last_state.zone_id).inc()
     try:
         # Calculate distance for the final segment (from last known point inside to current point outside)
         if settings.DISTANCE_CALC_METHOD == 'postgis':
@@ -83,14 +84,15 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
              log.warning(f"Calculated unusually large distance ({total_distance}km) for {vehicle_id} exiting {last_state.zone_id}.")
 
         rate = last_state.rate_per_km
-        toll_amount = total_distance * rate
+        # Use Decimal arithmetic for financial calculations to avoid floating-point
+        # precision errors (e.g., 0.15 * 1.187 = 0.17805 not 0.17805000000000002).
+        toll_amount = float(
+            (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+        )
 
-        # Use Decimal for financial calculations if high precision needed
-        # from decimal import Decimal, ROUND_HALF_UP
-        # toll_amount_decimal = (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        # toll_amount = float(toll_amount_decimal)
-
-        toll_amount = round(toll_amount, 2) # Round to 2 decimal places
+        toll_amount = round(toll_amount, 2) # Belt-and-suspenders: already 2dp from Decimal
 
         # Generate toll event payload using Pydantic model for structure and validation
         toll_event = TollEvent(

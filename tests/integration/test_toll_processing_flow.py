@@ -17,15 +17,21 @@ PG_DB = "test_smarttoll"
 PG_USER = "test_user"
 PG_PASS = "test_password"
 
+# Must match SERVICE_API_KEY in docker-compose.integration.yml
+BILLING_API_KEY = "test_api_key_integration"
+
 GPS_TOPIC = "smarttoll.gps.raw.v1"
 TOLL_TOPIC = "smarttoll.toll.events.v1"
 PAYMENT_TOPIC = "smarttoll.payment.events.v1"
+
+# Explicit version avoids slow Kafka broker-version probing on startup
+_KAFKA_VERSION = (3, 3, 1)
 
 @pytest.fixture(scope="module", autouse=True)
 def wait_for_services():
     time.sleep(15)  # wait for docker services to be healthy
     # verify each service
-    KafkaProducer(bootstrap_servers=KAFKA_BROKER, request_timeout_ms=5000).close()
+    KafkaProducer(bootstrap_servers=KAFKA_BROKER, api_version=_KAFKA_VERSION, request_timeout_ms=5000).close()
     Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=5).ping()
     conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS, connect_timeout=5)
     conn.close()
@@ -34,6 +40,7 @@ def wait_for_services():
 def kafka_producer():
     prod = KafkaProducer(
         bootstrap_servers=KAFKA_BROKER,
+        api_version=_KAFKA_VERSION,
         value_serializer=lambda v: json.dumps(v).encode(),
         key_serializer=lambda k: k.encode()
     )
@@ -45,6 +52,7 @@ def toll_consumer():
     cons = KafkaConsumer(
         TOLL_TOPIC,
         bootstrap_servers=KAFKA_BROKER,
+        api_version=_KAFKA_VERSION,
         group_id=f"test-toll-{uuid.uuid4().hex}",
         auto_offset_reset='earliest',
         consumer_timeout_ms=10000,
@@ -58,6 +66,7 @@ def payment_consumer():
     cons = KafkaConsumer(
         PAYMENT_TOPIC,
         bootstrap_servers=KAFKA_BROKER,
+        api_version=_KAFKA_VERSION,
         group_id=f"test-pay-{uuid.uuid4().hex}",
         auto_offset_reset='earliest',
         consumer_timeout_ms=15000,

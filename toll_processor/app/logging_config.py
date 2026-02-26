@@ -34,7 +34,5 @@ def setup_logging():
     logger.info(f"Logging configured with level: {log_level}")
     return logger
 
-# Call setup function immediately when module is imported
-setup_logging()
 # Get logger instance for use in other modules
 log = logging.getLogger(__name__)

@@ -34,5 +34,4 @@ def setup_logging():
     return logger
 
 
-setup_logging()
 log = logging.getLogger(__name__)

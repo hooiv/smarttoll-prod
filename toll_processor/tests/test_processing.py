@@ -191,8 +191,9 @@ def test_process_gps_message_exit_from_zone(mock_dependencies):
     assert toll_event.exitTime == SAMPLE_GPS_OUTSIDE_ZONE.timestamp
     assert toll_event.distanceKm == pytest.approx(1.25 + 0.25)  # Accumulated + final segment
     assert toll_event.ratePerKm == 0.15
-    expected_toll = (1.25 + 0.25) * 0.15
-    assert toll_event.tollAmount == pytest.approx(round(expected_toll, 2))
+    # Decimal ROUND_HALF_UP: 1.5 km * 0.15 $/km = 0.225 -> rounds to 0.23
+    # (float gives 0.22 because 1.5*0.15 == 0.22499... due to representation error)
+    assert toll_event.tollAmount == pytest.approx(0.23)
     assert toll_event.currency == "USD"
 
 def test_process_gps_message_move_between_zones(mock_dependencies):
@@ -253,3 +254,120 @@ def test_process_gps_message_move_between_zones(mock_dependencies):
     assert new_state_b.lon == SAMPLE_GPS_DIFFERENT_ZONE.longitude
     assert new_state_b.entry_time == SAMPLE_GPS_DIFFERENT_ZONE.timestamp  # Entry time is current time
     assert new_state_b.deviceId == "DEV123"  # Should carry over deviceId
+
+# --- Tests for GpsData timestamp staleness validation ---
+
+def test_gps_data_accepts_current_timestamp():
+    """GpsData accepts a timestamp that is current (now)."""
+    gps = GpsData(
+        deviceId="DEV1", vehicleId="VEH1",
+        timestamp=int(time.time() * 1000),
+        latitude=40.71, longitude=-74.0,
+    )
+    assert gps.timestamp > 0
+
+
+def test_gps_data_accepts_recent_past_timestamp():
+    """GpsData accepts a timestamp that is 5 minutes ago (within the 10-min window)."""
+    five_min_ago_ms = int((time.time() - 5 * 60) * 1000)
+    gps = GpsData(
+        deviceId="DEV1", vehicleId="VEH1",
+        timestamp=five_min_ago_ms,
+        latitude=40.71, longitude=-74.0,
+    )
+    assert gps.timestamp == five_min_ago_ms
+
+
+def test_gps_data_rejects_stale_timestamp():
+    """GpsData rejects a timestamp older than 10 minutes."""
+    from pydantic import ValidationError as PydanticValidationError
+    stale_ms = int((time.time() - 11 * 60) * 1000)  # 11 minutes ago
+    with pytest.raises(PydanticValidationError, match="too old"):
+        GpsData(
+            deviceId="DEV1", vehicleId="VEH1",
+            timestamp=stale_ms,
+            latitude=40.71, longitude=-74.0,
+        )
+
+
+def test_gps_data_rejects_far_future_timestamp():
+    """GpsData rejects a timestamp more than 60 seconds in the future."""
+    from pydantic import ValidationError as PydanticValidationError
+    future_ms = int((time.time() + 120) * 1000)  # 2 minutes ahead
+    with pytest.raises(PydanticValidationError, match="future"):
+        GpsData(
+            deviceId="DEV1", vehicleId="VEH1",
+            timestamp=future_ms,
+            latitude=40.71, longitude=-74.0,
+        )
+
+
+# --- freezegun-based tests for deterministic timestamp validation ---
+
+def test_gps_data_rejects_stale_timestamp_deterministic():
+    """Using freezegun: GpsData rejects timestamp older than 10 minutes.
+
+    freezegun makes the test independent of wall-clock time, so it
+    passes at any time of day and does not flake near midnight.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+    from freezegun import freeze_time
+
+    # Freeze wall clock at noon UTC
+    with freeze_time("2026-06-15 12:00:00"):
+        stale_ms = int((time.time() - 11 * 60) * 1000)  # 11 minutes ago
+        with pytest.raises(PydanticValidationError, match="too old"):
+            GpsData(deviceId="D1", vehicleId="V1", timestamp=stale_ms,
+                    latitude=40.71, longitude=-74.0)
+
+
+def test_gps_data_accepts_current_timestamp_deterministic():
+    """Using freezegun: GpsData accepts a timestamp equal to now."""
+    from freezegun import freeze_time
+
+    with freeze_time("2026-06-15 12:00:00"):
+        now_ms = int(time.time() * 1000)
+        gps = GpsData(deviceId="D1", vehicleId="V1", timestamp=now_ms,
+                      latitude=40.71, longitude=-74.0)
+        assert gps.timestamp == now_ms
+
+
+# --- Tests for zone_exits_total metric ---
+
+def test_zone_exits_total_incremented_on_exit(mock_dependencies, mocker):
+    """zone_exits_total counter is incremented exactly once when a vehicle exits a zone."""
+    from app import metrics
+
+    mock_exits = mocker.patch.object(
+        metrics.zone_exits_total.labels(zone_id="ZoneA"),
+        "inc",
+    )
+
+    entry_time = SAMPLE_GPS_INSIDE_ZONE.timestamp
+    prior_state = VehicleState(
+        in_zone=True, zone_id="ZoneA", rate_per_km=0.15, entry_time=entry_time,
+        distance_km=0.5, lat=40.711, lon=-74.006, last_update=entry_time, deviceId="DEV123"
+    )
+    mock_dependencies["get_state"].return_value = prior_state
+    mock_dependencies["get_zone"].return_value = None  # Vehicle exited
+
+    processing.process_gps_message(SAMPLE_GPS_OUTSIDE_ZONE.model_dump(), 200)
+
+    mock_exits.assert_called_once()
+
+
+def test_zone_exits_total_not_incremented_on_entry(mock_dependencies, mocker):
+    """zone_exits_total is NOT incremented when a vehicle enters a zone (no prior state)."""
+    from app import metrics
+
+    mock_exits = mocker.patch.object(
+        metrics.zone_exits_total.labels(zone_id="ZoneA"),
+        "inc",
+    )
+
+    mock_dependencies["get_state"].return_value = None
+    mock_dependencies["get_zone"].return_value = {"zone_id": "ZoneA", "rate_per_km": 0.15}
+
+    processing.process_gps_message(SAMPLE_GPS_INSIDE_ZONE.model_dump(), 201)
+
+    mock_exits.assert_not_called()

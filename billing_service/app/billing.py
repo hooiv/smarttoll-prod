@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select # Use select() for modern SQLAlchemy
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app import models, payment, kafka_client # Relative imports
+from app import models, payment, kafka_client, metrics # Relative imports
 from app.config import settings
 from app.payment import PaymentGatewayError # Import custom exception
 
@@ -29,10 +29,12 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     if existing_tx:
         if existing_tx.status == "SUCCESS":
             log.warning(f"Duplicate Toll Event ID {event_data.eventId} already processed successfully (TxID: {existing_tx.id}). Ignoring.")
+            metrics.transactions_duplicate_total.inc()
             # Optionally republish payment result? Depends on downstream consumers.
             return True # Indicate successful handling (idempotency)
         elif existing_tx.status in ["PENDING", "PROCESSING", "RETRY"]:
              log.warning(f"Duplicate Toll Event ID {event_data.eventId} already exists with status {existing_tx.status} (TxID: {existing_tx.id}). Ignoring new request.")
+             metrics.transactions_duplicate_total.inc()
              # Potentially check age of pending transaction and retry if needed? Complex.
              return True # Indicate handled for now
         # If FAILED, maybe allow retry? Depends on business rules. Let's assume we don't retry based on duplicate event alone here.
@@ -43,7 +45,8 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
         toll_event_id=event_data.eventId,
         amount=round(event_data.tollAmount, 2), # Ensure rounded
         currency=event_data.currency,
-        status="PENDING" # Start as pending
+        status="PENDING",
+        retry_count=0,
     )
     db.add(new_tx)
     try:
@@ -51,6 +54,7 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
         db.refresh(new_tx)  # Populate new_tx.id with the assigned value
         tx_id = new_tx.id
         db.commit()         # Commit the pending record
+        metrics.transactions_created_total.inc()
         log.info(f"Created PENDING transaction record TxID={tx_id} for EventID={event_data.eventId}")
     except IntegrityError as e:
         db.rollback()
@@ -66,11 +70,10 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     payment_start_time = time.monotonic()
     gateway_ref = None
     payment_error_msg = None
-    payment_success = False
-    final_status = "FAILED" # Default to failed
+    final_status = "FAILED"  # Default to failed
 
     try:
-        # Update status to PROCESSING first
+        # Update status to PROCESSING before calling payment gateway
         new_tx.status = "PROCESSING"
         db.commit()
         log.info(f"TxID={tx_id} status updated to PROCESSING before calling payment gateway.")
@@ -84,23 +87,26 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
             currency=new_tx.currency
         )
         # If process_payment returns without exception, it's a success
-        payment_success = True
         final_status = "SUCCESS"
+        metrics.payment_success_total.inc()
         log.info(f"Payment successful for TxID={tx_id}. Gateway Ref: {gateway_ref}")
 
     except PaymentGatewayError as pge:
         # Specific failure from the payment gateway
         log.warning(f"Payment failed for TxID={tx_id} due to gateway error: {pge.message} (Code: {pge.error_code})")
         payment_error_msg = f"{pge.error_code}: {pge.message}"
+        metrics.payment_failure_total.labels(error_code=pge.error_code).inc()
         # Check if retryable? For now, mark as FAILED. Could set to RETRY based on error_code.
         final_status = "FAILED"
     except Exception as e:
         # Unexpected error during payment call
         log.exception(f"Unexpected error during payment processing for TxID={tx_id}.")
         payment_error_msg = f"Unexpected system error: {str(e)}"
+        metrics.payment_failure_total.labels(error_code="SYSTEM_ERROR").inc()
         final_status = "FAILED" # Or maybe RETRY if transient?
 
     payment_duration = time.monotonic() - payment_start_time
+    metrics.payment_duration_seconds.observe(payment_duration)
     log.info(f"Payment attempt for TxID={tx_id} finished in {payment_duration:.3f}s with status {final_status}")
 
     # --- 4. Update Transaction Status in DB ---

@@ -1,6 +1,6 @@
 import logging
-from typing import Optional, Any
-from pydantic import field_validator, model_validator
+from typing import Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "changeme_in_prod_123!"
     DATABASE_URL: Optional[str] = None
 
+    # Database connection pool
+    POSTGRES_POOL_SIZE: int = 5
+    POSTGRES_MAX_OVERFLOW: int = 10
+    POSTGRES_POOL_TIMEOUT: int = 30
+
     @model_validator(mode='after')
     def assemble_db_url(self) -> 'Settings':
         if not self.DATABASE_URL:
@@ -45,14 +50,28 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
 
+    # CORS — comma-separated list of allowed origins, e.g. "https://ui.example.com,http://localhost:3000"
+    # Default "*" (allow all) is safe behind an API key; restrict in production.
+    CORS_ORIGINS: list[str] = ["*"]
+
     # Payment Gateway (Mock settings)
     MOCK_PAYMENT_FAIL_RATE: float = 0.1
 
     # API Security
     SERVICE_API_KEY: Optional[str] = None
 
+    # Service metadata
+    SERVICE_VERSION: str = "1.0.0"
+
 
 settings = Settings()
+
+# Warn immediately at import time so the misconfiguration shows up in startup logs
+if not settings.SERVICE_API_KEY:
+    logging.warning(
+        "SERVICE_API_KEY is not set. All requests to authenticated endpoints "
+        "will receive HTTP 503 until the variable is configured and the service restarted."
+    )
 
 # Log loaded settings (excluding sensitive ones)
 logging.debug("Billing Service Settings Loaded:")

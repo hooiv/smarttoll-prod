@@ -11,6 +11,3 @@ alembic>=1.10.3
 
 # Monitoring instrumentation
 prometheus-fastapi-instrumentator>=6.0.0
-# Security dependencies for API auth
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4

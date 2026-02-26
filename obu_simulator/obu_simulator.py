@@ -60,7 +60,8 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
             acks=1, # Fire-and-forget is often okay for high-volume sensor data
             retries=3,
             retry_backoff_ms=100,
-            linger_ms=5 # Slight batching
+            linger_ms=5, # Slight batching
+            api_version=(3, 3, 1) # Explicit version avoids slow broker-probing on startup
         )
         logger.info("Kafka producer initialized successfully.")
         return producer
@@ -72,7 +73,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
         logger.error(f"Kafka producer init failed: {e}")
         producer = None
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected error initializing Kafka producer.")
         producer = None
         raise
@@ -125,7 +126,7 @@ def run_simulation():
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
-    logger.info(f"OBU Simulator starting.")
+    logger.info("OBU Simulator starting.")
     logger.info(f"  Device ID:  {DEVICE_ID}")
     logger.info(f"  Vehicle ID: {VEHICLE_ID}")
     logger.info(f"  Target Topic: {GPS_TOPIC}")
@@ -166,18 +167,14 @@ def run_simulation():
             # Use vehicleId as key to ensure messages for same vehicle go to same partition (good practice)
             message_key = VEHICLE_ID.encode('utf-8')
             logger.debug(f"Sending GPS: {payload}")
-            # Send is asynchronous by default
-            future = prod.send(GPS_TOPIC, value=payload, key=message_key)
-
-            # Optional: Add callbacks for success/failure logging (non-blocking)
-            # future.add_callback(on_send_success)
-            # future.add_errback(on_send_error)
+            prod.send(GPS_TOPIC, value=payload, key=message_key)
+            # Add future.add_callback / future.add_errback here for async delivery confirmation if needed
 
         except KafkaError as e:
             logger.error(f"Kafka send failed: {e}")
             # Simple backoff/retry could be added here, or rely on producer retries
-            time.sleep(1) # Small sleep on error
-        except Exception as e:
+            time.sleep(1)  # Small sleep on error
+        except Exception:
             logger.exception("Unexpected error sending message.")
             time.sleep(1)
 

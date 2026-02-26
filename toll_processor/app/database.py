@@ -3,10 +3,9 @@ import time
 import threading
 from contextlib import contextmanager
 
-import psycopg2
 from psycopg2 import pool as psycopg2_pool
 from psycopg2 import OperationalError as Psycopg2OpError
-from psycopg2.extras import RealDictCursor # Use dict cursors for easier access
+from psycopg2.extras import RealDictCursor  # Use dict cursors for easier access
 
 from app.config import settings
 
@@ -42,7 +41,7 @@ def _initialize_db_pool():
         log.error(f"PostgreSQL pool initialization failed: {e}")
         _db_pool = None # Ensure pool is None if failed
         raise # Re-raise to signal failure
-    except Exception as e:
+    except Exception:
         log.exception("Unexpected error initializing PostgreSQL pool.")
         _db_pool = None
         raise
@@ -125,7 +124,7 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
         log.error(f"Database operational error during geofence check: {db_err}", exc_info=True)
         # Depending on policy, maybe return None or raise a specific exception
         return None # Fail safe - assume outside zone if DB error occurs
-    except Exception as e:
+    except Exception:
         log.exception(f"Unexpected error during geofence check for ({latitude}, {longitude}).")
         return None # Fail safe
 
@@ -144,6 +143,7 @@ def close_db_pool():
 def init_db_schema():
     """
     Initializes the required database schema for toll_processor, ensuring PostGIS and toll_zones table exist.
+    Also seeds default toll zones matching the OBU simulator route if the table is empty.
     """
     with get_db_connection() as conn:
         with conn.cursor() as cur:
@@ -158,5 +158,28 @@ def init_db_schema():
                     geom geometry(POLYGON,4326) NOT NULL
                 );
             """)
-        # Commit DDL changes so they persist
+            # Add spatial GiST index for fast ST_Contains geofence lookups
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_toll_zones_geom
+                ON toll_zones USING GIST(geom);
+            """)
+            # Seed default zone that the OBU simulator route passes through
+            # Simulator drives from (40.700, -74.010) to (40.720, -74.000); zone covers the mid-section
+            cur.execute("""
+                INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, geom)
+                VALUES (
+                    'Zone1',
+                    'NYC Demo Zone',
+                    0.15,
+                    ST_SetSRID(
+                        ST_MakePolygon(
+                            ST_GeomFromText('LINESTRING(-74.008 40.705, -74.002 40.705, -74.002 40.715, -74.008 40.715, -74.008 40.705)')
+                        ),
+                        4326
+                    )
+                )
+                ON CONFLICT (zone_id) DO NOTHING;
+            """)
+        # Commit DDL + seed data so they persist
         conn.commit()
+    log.info("Database schema initialised and default toll zones seeded.")
