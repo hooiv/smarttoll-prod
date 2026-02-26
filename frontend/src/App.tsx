@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useInView } from 'framer-motion'
 import {
-  Activity, AlertCircle, ArrowUpRight, BarChart3,
+  Activity, ArrowUpRight, BarChart3,
   Car, CheckCircle2, ChevronRight, Clock, CloudLightning, Code2,
-  Cpu, Database, ExternalLink, GitBranch, Globe, Layers,
-  Map, Menu, Navigation,
-  Server, Shield, Terminal, X, Zap
+  Cpu, Database, ExternalLink, Globe,
+  Lock, Map, Menu, Navigation, Network,
+  RefreshCw, Server, Shield, Terminal, TrendingUp, X, Zap
 } from 'lucide-react'
 
 const FadeIn = ({ children, delay = 0, direction = 'up' }: { children: React.ReactNode; delay?: number; direction?: 'up' | 'left' | 'right' | 'none' }) => {
@@ -519,27 +519,51 @@ function ApiSection() {
           </div>
           <FadeIn delay={0.2} direction="right">
             <div className="space-y-4">
-              <div className="card-glass card-hover rounded-2xl p-6">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(59,130,246,0.1)' }}>
-                  <Shield className="w-5 h-5 text-blue-400" />
+              {[
+                {
+                  icon: <Lock className="w-6 h-6" />,
+                  color: '#3b82f6',
+                  title: 'API Key Auth',
+                  tag: 'HMAC · constant-time',
+                  desc: <>Constant-time key comparison prevents timing attacks. Set via <code className="font-mono text-xs" style={{ color: '#60a5fa' }}>SERVICE_API_KEY</code> env var.</>,
+                },
+                {
+                  icon: <Network className="w-6 h-6" />,
+                  color: '#06b6d4',
+                  title: 'Request Tracing',
+                  tag: 'X-Request-ID',
+                  desc: <>Every response carries a <code className="font-mono text-xs" style={{ color: '#22d3ee' }}>X-Request-ID</code> header — correlate logs across all three services instantly.</>,
+                },
+                {
+                  icon: <TrendingUp className="w-6 h-6" />,
+                  color: '#8b5cf6',
+                  title: 'Prometheus Metrics',
+                  tag: '/metrics · scrape',
+                  desc: 'Transaction counters, payment duration histograms, and Kafka consumer throughput — ready for Grafana.',
+                },
+              ].map((card) => (
+                <div key={card.title} className="card-glass card-hover rounded-2xl p-6 relative overflow-hidden"
+                  style={{ border: '1px solid rgba(255,255,255,0.06)', borderLeft: `3px solid ${card.color}` }}>
+                  <div className="absolute inset-0 pointer-events-none"
+                    style={{ background: `radial-gradient(ellipse at left center, ${card.color}12 0%, transparent 60%)` }} />
+                  <div className="relative flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: `${card.color}18`, border: `1px solid ${card.color}35`, boxShadow: `0 0 16px ${card.color}20` }}>
+                      <span style={{ color: card.color }}>{card.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <h3 className="font-bold text-white">{card.title}</h3>
+                        <span className="px-2 py-0.5 text-xs font-mono rounded"
+                          style={{ background: `${card.color}15`, color: card.color, border: `1px solid ${card.color}25` }}>
+                          {card.tag}
+                        </span>
+                      </div>
+                      <p className="text-sm text-white/50 leading-relaxed">{card.desc}</p>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="font-bold text-white mb-2">API Key Auth</h3>
-                <p className="text-sm text-white/50">Constant-time HMAC key comparison. Set via <code className="font-mono text-xs text-blue-400">SERVICE_API_KEY</code> env var.</p>
-              </div>
-              <div className="card-glass card-hover rounded-2xl p-6">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(6,182,212,0.1)' }}>
-                  <GitBranch className="w-5 h-5 text-cyan-400" />
-                </div>
-                <h3 className="font-bold text-white mb-2">Request Tracing</h3>
-                <p className="text-sm text-white/50">Every response includes <code className="font-mono text-xs text-cyan-400">X-Request-ID</code> header for distributed tracing.</p>
-              </div>
-              <div className="card-glass card-hover rounded-2xl p-6">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(139,92,246,0.1)' }}>
-                  <BarChart3 className="w-5 h-5 text-purple-400" />
-                </div>
-                <h3 className="font-bold text-white mb-2">Prometheus Metrics</h3>
-                <p className="text-sm text-white/50">Transaction counters, payment duration histograms, Kafka consumer throughput.</p>
-              </div>
+              ))}
             </div>
           </FadeIn>
         </div>
@@ -550,14 +574,18 @@ function ApiSection() {
 
 function About() {
   const features = [
-    { icon: <Map className="w-6 h-6" />, color: '#3b82f6', title: 'Geospatial Intelligence',
-      desc: 'PostGIS ST_Contains with GiST spatial indexes for sub-millisecond zone entry/exit detection across thousands of zones.' },
-    { icon: <AlertCircle className="w-6 h-6" />, color: '#ef4444', title: 'Fault Tolerance',
-      desc: 'Kafka consumer with auto_offset_reset=earliest ensures zero event loss on restart.' },
-    { icon: <Layers className="w-6 h-6" />, color: '#22c55e', title: 'Idempotency',
-      desc: 'Deduplication by toll_event_id prevents duplicate billing transactions.' },
-    { icon: <Globe className="w-6 h-6" />, color: '#f59e0b', title: 'Deploy Anywhere',
-      desc: 'Docker Compose for local dev. Kubernetes/ECS/Fly.io ready with health probes and Prometheus scrape endpoints baked in.' },
+    { icon: <Map className="w-7 h-7" />, color: '#3b82f6', title: 'Geospatial Intelligence',
+      tag: 'PostGIS · GiST Index',
+      desc: 'ST_Contains with GiST spatial indexes delivers sub-millisecond zone entry/exit detection across thousands of toll zones.' },
+    { icon: <RefreshCw className="w-7 h-7" />, color: '#ef4444', title: 'Fault Tolerance',
+      tag: 'Kafka · auto_offset_reset',
+      desc: 'Consumer restarts replay from the earliest unprocessed offset — zero event loss, no manual intervention.' },
+    { icon: <CheckCircle2 className="w-7 h-7" />, color: '#22c55e', title: 'Idempotency',
+      tag: 'toll_event_id · dedup',
+      desc: 'Every billing transaction is keyed on toll_event_id. Duplicate GPS bursts never produce duplicate charges.' },
+    { icon: <Globe className="w-7 h-7" />, color: '#f59e0b', title: 'Deploy Anywhere',
+      tag: 'Docker · K8s · ECS · Fly.io',
+      desc: 'One Compose file for local dev. Health probes and Prometheus scrape endpoints make it production-ready on any orchestrator.' },
   ]
   return (
     <section id="about" className="section-padding" style={{ background: '#07090f' }}>
@@ -575,12 +603,25 @@ function About() {
         <div className="grid md:grid-cols-2 gap-4">
           {features.map((feat, i) => (
             <FadeIn key={feat.title} delay={i * 0.1}>
-              <div className="card-glass card-hover rounded-2xl p-8 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${feat.color}` }}>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ background: `${feat.color}15`, border: `1px solid ${feat.color}25` }}>
-                  <span style={{ color: feat.color }}>{feat.icon}</span>
+              <div className="card-glass card-hover rounded-2xl p-8 h-full relative overflow-hidden"
+                style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${feat.color}` }}>
+                {/* background radial glow */}
+                <div className="absolute top-0 right-0 w-40 h-40 pointer-events-none"
+                  style={{ background: `radial-gradient(circle at top right, ${feat.color}18 0%, transparent 70%)` }} />
+                <div className="relative">
+                  <div className="flex items-start justify-between mb-5">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                      style={{ background: `${feat.color}18`, border: `1px solid ${feat.color}35`, boxShadow: `0 0 20px ${feat.color}22` }}>
+                      <span style={{ color: feat.color }}>{feat.icon}</span>
+                    </div>
+                    <span className="px-2.5 py-1 text-xs font-mono rounded-lg"
+                      style={{ background: `${feat.color}12`, color: feat.color, border: `1px solid ${feat.color}25` }}>
+                      {feat.tag}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">{feat.title}</h3>
+                  <p className="text-white/50 text-sm leading-relaxed">{feat.desc}</p>
                 </div>
-                <h3 className="text-lg font-bold text-white mb-3">{feat.title}</h3>
-                <p className="text-white/50 text-sm leading-relaxed">{feat.desc}</p>
               </div>
             </FadeIn>
           ))}
