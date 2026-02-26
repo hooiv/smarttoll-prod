@@ -291,23 +291,24 @@ function Architecture() {
   )
 }
 
+const LOG_TEMPLATES = [
+  { level: 'INFO', msg: 'GPS event received: vehicle_id=V-4821, lat=40.7142, lon=-74.0063', service: 'obu_simulator' },
+  { level: 'INFO', msg: 'Zone entry detected: zone=Zone1, vehicle=V-4821', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Toll calculated: $2.50 (haversine=0.82km)', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Toll event published to kafka: toll_events', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Billing transaction created: txn_id=TXN-8821', service: 'billing_service' },
+  { level: 'INFO', msg: 'Payment processed: gateway=MOCK, status=SUCCESS', service: 'billing_service' },
+  { level: 'WARN', msg: 'GPS timestamp delta: 4.2s — within threshold', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Zone exit detected: zone=Zone1, vehicle=V-4821', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Redis state updated: TTL=21600s', service: 'toll_processor' },
+  { level: 'INFO', msg: 'Idempotency check passed: toll_event_id=EVT-0044', service: 'billing_service' },
+]
+
 function KernelLog() {
   const [logs, setLogs] = useState<Array<{ ts: string; level: string; msg: string; service: string }>>([])
-  const logTemplates = [
-    { level: 'INFO', msg: 'GPS event received: vehicle_id=V-4821, lat=40.7142, lon=-74.0063', service: 'obu_simulator' },
-    { level: 'INFO', msg: 'Zone entry detected: zone=Zone1, vehicle=V-4821', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Toll calculated: $2.50 (haversine=0.82km)', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Toll event published to kafka: toll_events', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Billing transaction created: txn_id=TXN-8821', service: 'billing_service' },
-    { level: 'INFO', msg: 'Payment processed: gateway=MOCK, status=SUCCESS', service: 'billing_service' },
-    { level: 'WARN', msg: 'GPS timestamp delta: 4.2s — within threshold', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Zone exit detected: zone=Zone1, vehicle=V-4821', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Redis state updated: TTL=21600s', service: 'toll_processor' },
-    { level: 'INFO', msg: 'Idempotency check passed: toll_event_id=EVT-0044', service: 'billing_service' },
-  ]
   useEffect(() => {
     const interval = setInterval(() => {
-      const tpl = logTemplates[Math.floor(Math.random() * logTemplates.length)]
+      const tpl = LOG_TEMPLATES[Math.floor(Math.random() * LOG_TEMPLATES.length)]
       const now = new Date()
       const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(now.getMilliseconds()).padStart(3,'0')}`
       setLogs(prev => [...prev.slice(-14), { ts, ...tpl }])
