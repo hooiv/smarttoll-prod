@@ -101,12 +101,32 @@ body {
   border-radius: 9999px;
   color: white;
   font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
   transition: all 0.3s ease;
 }
 
 .btn-primary:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+  transform: scale(1.03);
+  box-shadow: 0 0 32px rgba(59, 130, 246, 0.55), 0 4px 16px rgba(6, 182, 212, 0.3);
+}
+
+.btn-ghost {
+  border-radius: 9999px;
+  color: rgba(242,242,242,0.65);
+  font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: all 0.3s ease;
+}
+
+.btn-ghost:hover {
+  color: #f2f2f2;
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.04);
 }
 
 /* Asymmetric section padding: more top, less bottom so between-section gaps are tighter */
