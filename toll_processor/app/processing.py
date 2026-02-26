@@ -66,6 +66,7 @@ def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float
 def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, exit_timestamp_ms: int, exit_lat: float, exit_lon: float):
     """Handles logic when a vehicle exits a zone, calculates toll, sends event."""
     log.info(f"Vehicle {vehicle_id} (Device: {device_id}) EXITED toll zone {last_state.zone_id}.")
+    metrics.zone_exits_total.labels(zone_id=last_state.zone_id).inc()
     try:
         # Calculate distance for the final segment (from last known point inside to current point outside)
         if settings.DISTANCE_CALC_METHOD == 'postgis':

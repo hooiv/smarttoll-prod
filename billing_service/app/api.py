@@ -51,12 +51,6 @@ async def readiness_check(_: None = Depends(check_dependencies)):
     return {"status": "ready"}
 
 
-@router.get("/health", tags=["Health"])
-async def health_check():
-    """Basic health check endpoint."""
-    return {"status": "ok", "service": "Billing Service"}
-
-
 @router.get("/version", tags=["Health"], summary="Service Version")
 async def version():
     """Returns the current service version."""

@@ -90,6 +90,7 @@ class TransactionStatusResponse(BaseModel):
     amount: float
     currency: str
     status: str
+    retry_count: int
     transaction_time: datetime.datetime
     last_updated: Optional[datetime.datetime] = None
     payment_gateway_ref: Optional[str] = None
