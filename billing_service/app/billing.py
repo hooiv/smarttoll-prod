@@ -70,8 +70,7 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     payment_start_time = time.monotonic()
     gateway_ref = None
     payment_error_msg = None
-    payment_success = False
-    final_status = "FAILED" # Default to failed
+    final_status = "FAILED"  # Default to failed
 
     try:
         # Update status to PROCESSING first, increment attempt counter

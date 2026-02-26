@@ -45,7 +45,7 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
         log.error(f"Kafka producer initialization failed: {e}")
         _producer = None
         raise
-    except Exception as e:
+    except Exception:
         log.exception("Unexpected error initializing Kafka producer.")
         _producer = None
         raise
@@ -75,13 +75,13 @@ def send_message(topic: str, message: Dict[str, Any], key: Optional[bytes] = Non
         return False
     try:
         log.debug(f"Sending message to topic '{topic}': {message}")
-        future = producer.send(topic, value=message, key=key)
-        # Optional: future.get(timeout=...)
+        producer.send(topic, value=message, key=key)
+        # Use future.get(timeout=...) here to block until acknowledged if needed
         return True
     except KafkaError as e:
         log.error(f"Failed to send message to Kafka topic '{topic}': {e}")
         return False
-    except Exception as e:
+    except Exception:
         log.exception(f"Unexpected error sending message to topic '{topic}'.")
         return False
 
@@ -127,7 +127,7 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
         log.error(f"Kafka consumer initialization failed: {e}")
         _consumer = None
         raise
-    except Exception as e:
+    except Exception:
         log.exception("Unexpected error initializing Kafka consumer.")
         _consumer = None
         raise
