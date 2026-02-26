@@ -126,7 +126,7 @@ def run_simulation():
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
-    logger.info(f"OBU Simulator starting.")
+    logger.info("OBU Simulator starting.")
     logger.info(f"  Device ID:  {DEVICE_ID}")
     logger.info(f"  Vehicle ID: {VEHICLE_ID}")
     logger.info(f"  Target Topic: {GPS_TOPIC}")

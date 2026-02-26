@@ -4,7 +4,7 @@ Prometheus metrics for the Billing Service.
 Metrics are registered on the default registry and exposed via the
 /metrics endpoint added by prometheus_fastapi_instrumentator in main.py.
 """
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram
 
 # --- Transaction lifecycle ---
 transactions_created_total = Counter(

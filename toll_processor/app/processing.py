@@ -1,8 +1,7 @@
 import logging
 import time
-import json
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from math import radians, cos, sin, asin, sqrt
 
 from pydantic import ValidationError
