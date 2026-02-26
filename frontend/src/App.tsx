@@ -67,12 +67,9 @@ function Navbar() {
           </div>
           <div className="hidden md:flex items-center gap-3">
             <a href="http://localhost:8001/docs" target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-full"
-              style={{ background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', color: 'white' }}>
+              className="btn-primary flex items-center gap-1.5 px-5 py-2 text-sm">
               View API Docs
-              <div className="w-4 h-4 bg-white/20 rounded-full flex items-center justify-center">
-                <ArrowUpRight className="w-2.5 h-2.5" />
-              </div>
+              <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
             </a>
           </div>
           <button className="md:hidden text-white/70 hover:text-white" onClick={() => setMenuOpen(!menuOpen)}>
@@ -219,12 +216,11 @@ function Hero() {
           <FadeIn delay={0.5}>
             <div className="flex flex-wrap gap-4">
               <a href="http://localhost:8001/docs" target="_blank" rel="noopener noreferrer"
-                className="btn-primary flex items-center gap-2 px-8 py-4">
-                Explore API <ArrowUpRight className="w-4 h-4" />
+                className="btn-primary gap-2 px-7 py-3.5 text-sm">
+                Explore API <ArrowUpRight className="w-4 h-4 shrink-0" />
               </a>
-              <a href="#platform" className="flex items-center gap-2 px-8 py-4 rounded-full text-white/70 hover:text-white transition-all duration-300"
-                style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-                Learn More <ChevronRight className="w-4 h-4" />
+              <a href="#platform" className="btn-ghost gap-2 px-7 py-3.5 text-sm">
+                Learn More <ChevronRight className="w-4 h-4 shrink-0" />
               </a>
             </div>
           </FadeIn>
@@ -288,30 +284,43 @@ function Architecture() {
             <span className="text-xs font-semibold uppercase tracking-widest text-white/40">Architecture</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
-            Three Services.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>One Seamless Pipeline.</span>
+            Three Services.<br />
+            <span style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 50%, #8b5cf6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>One Seamless Pipeline.</span>
           </h2>
           <p className="text-white/50 max-w-xl mb-6 text-lg">Event-driven microservices architecture built for throughput, resilience, and observability.</p>
         </FadeIn>
         <div className="grid md:grid-cols-3 gap-6 mb-6">
           {services.map((svc, i) => (
             <FadeIn key={svc.name} delay={i * 0.15}>
-              <div className="card-glass card-hover rounded-2xl p-6 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${svc.color}` }}>
-                <div className="flex items-start justify-between mb-6">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${svc.color}20`, border: `1px solid ${svc.color}35`, boxShadow: `0 0 18px ${svc.color}25` }}>
-                    <span style={{ color: svc.color }}>{svc.icon}</span>
+              <div className="card-glass card-hover rounded-2xl p-6 h-full relative overflow-hidden"
+                style={{ border: '1px solid rgba(255,255,255,0.06)', borderLeft: `3px solid ${svc.color}` }}>
+                {/* diagonal gradient overlay */}
+                <div className="absolute inset-0 pointer-events-none"
+                  style={{ background: `linear-gradient(135deg, ${svc.color}0a 0%, transparent 55%)` }} />
+                <div className="relative">
+                  <div className="flex items-start justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: `${svc.color}18`, border: `1px solid ${svc.color}35`, boxShadow: `0 0 20px ${svc.color}28` }}>
+                        <span style={{ color: svc.color }}>{svc.icon}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-mono text-white/30">{svc.metricLabel}</p>
+                      <p className="text-lg font-bold font-mono" style={{ color: svc.color }}>{svc.metric}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs font-mono text-white/30">{svc.metricLabel}</p>
-                    <p className="text-lg font-bold font-mono" style={{ color: svc.color }}>{svc.metric}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-mono font-bold" style={{ color: `${svc.color}80` }}>0{i + 1}</span>
+                    <h3 className="font-bold text-lg text-white">{svc.name}</h3>
                   </div>
-                </div>
-                <h3 className="font-bold text-lg text-white mb-2">{svc.name}</h3>
-                <p className="text-white/50 text-sm mb-4 leading-relaxed">{svc.description}</p>
-                <div className="flex flex-wrap gap-2">
-                  {svc.tags.map(tag => (
-                    <span key={tag} className="px-2 py-0.5 text-xs rounded-md font-mono"
-                      style={{ background: `${svc.color}10`, color: svc.color, border: `1px solid ${svc.color}20` }}>{tag}</span>
-                  ))}
+                  <p className="text-white/50 text-sm mb-4 leading-relaxed">{svc.description}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {svc.tags.map(tag => (
+                      <span key={tag} className="px-2 py-0.5 text-xs rounded-md font-mono"
+                        style={{ background: `${svc.color}10`, color: svc.color, border: `1px solid ${svc.color}25` }}>{tag}</span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </FadeIn>
@@ -327,8 +336,10 @@ function Architecture() {
                 { icon: <Timer className="w-5 h-5" />, name: 'Redis', desc: 'Vehicle state cache', color: '#ef4444' },
                 { icon: <LineChart className="w-5 h-5" />, name: 'Prometheus', desc: 'Metrics + alerting', color: '#e87d14' },
               ].map((infra) => (
-                <div key={infra.name} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${infra.color}15` }}>
+                <div key={infra.name} className="flex items-center gap-3 p-3 rounded-xl transition-all duration-200 hover:bg-white/5"
+                  style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${infra.color}15` }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: `${infra.color}15`, border: `1px solid ${infra.color}30`, boxShadow: `0 0 10px ${infra.color}20` }}>
                     <span style={{ color: infra.color }}>{infra.icon}</span>
                   </div>
                   <div>
@@ -389,20 +400,25 @@ function KernelLog() {
               <span className="text-xs font-semibold uppercase tracking-widest text-white/40">Live System</span>
             </div>
             <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-6">
-              Real-time event<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>processing engine.</span>
+              Real-time event<br />
+              <span style={{ background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>processing engine.</span>
             </h2>
             <p className="text-white/50 text-lg leading-relaxed mb-8">
               Every GPS ping triggers a cascade: geofence detection, toll calculation, Kafka event emission, and payment processing — all within single-digit milliseconds.
             </p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'GPS Validation', desc: '±10 min timestamp window' },
-                { label: 'Spatial Index', desc: 'PostGIS GiST on toll zones' },
-                { label: 'State TTL', desc: '6-hour Redis expiry' },
-                { label: 'Deduplication', desc: 'Idempotent by event ID' },
+                { label: 'GPS Validation', desc: '±10 min timestamp window', color: '#3b82f6', icon: <MapPin className="w-4 h-4" /> },
+                { label: 'Spatial Index', desc: 'PostGIS GiST on toll zones', color: '#06b6d4', icon: <Crosshair className="w-4 h-4" /> },
+                { label: 'State TTL', desc: '6-hour Redis expiry', color: '#ef4444', icon: <Timer className="w-4 h-4" /> },
+                { label: 'Deduplication', desc: 'Idempotent by event ID', color: '#22c55e', icon: <Fingerprint className="w-4 h-4" /> },
               ].map(item => (
-                <div key={item.label} className="p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <p className="text-sm font-semibold text-white mb-1">{item.label}</p>
+                <div key={item.label} className="p-4 rounded-xl relative overflow-hidden"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderLeft: `2px solid ${item.color}` }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span style={{ color: item.color }}>{item.icon}</span>
+                    <p className="text-sm font-semibold text-white">{item.label}</p>
+                  </div>
                   <p className="text-xs text-white/40 font-mono">{item.desc}</p>
                 </div>
               ))}
@@ -487,7 +503,8 @@ function ApiSection() {
             <span className="text-xs font-semibold uppercase tracking-widest text-white/40">REST API</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
-            OpenAPI documented.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>Production ready.</span>
+            OpenAPI documented.<br />
+            <span style={{ background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Production ready.</span>
           </h2>
           <p className="text-white/50 text-lg max-w-xl mb-8">
             Full Swagger UI at <code className="font-mono text-blue-400 text-sm bg-blue-400/10 px-2 py-0.5 rounded">localhost:8001/docs</code> with request/response schemas and live testing.
@@ -596,7 +613,8 @@ function About() {
             <span className="text-xs font-semibold uppercase tracking-widest text-white/40">About</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
-            Built for reliability.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>Engineered for scale.</span>
+            Built for reliability.<br />
+            <span style={{ background: 'linear-gradient(135deg, #22c55e, #06b6d4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Engineered for scale.</span>
           </h2>
           <p className="text-white/50 text-lg max-w-xl mb-8">SmartToll is a production-grade microservices platform using battle-tested infrastructure at every layer.</p>
         </FadeIn>
@@ -671,16 +689,13 @@ function CTA() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-4 justify-center">
-                <a href="http://localhost:8001/docs" target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 px-8 py-4">
+                <a href="http://localhost:8001/docs" target="_blank" rel="noopener noreferrer" className="btn-primary gap-2 px-7 py-3.5 text-sm">
                   Open Swagger UI
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </div>
+                  <ArrowUpRight className="w-4 h-4 shrink-0" />
                 </a>
                 <a href="https://github.com/hooiv/smarttoll-prod" target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-8 py-4 rounded-full text-white/70 hover:text-white transition-all duration-300"
-                  style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-                  View on GitHub <ExternalLink className="w-4 h-4" />
+                  className="btn-ghost gap-2 px-7 py-3.5 text-sm">
+                  View on GitHub <ExternalLink className="w-4 h-4 shrink-0" />
                 </a>
               </div>
             </div>
