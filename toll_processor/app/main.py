@@ -50,18 +50,25 @@ def main_consumer_loop():
                 # Poll for messages with a timeout
                 message_pack = consumer.poll(timeout_ms=1000, max_records=100) # Adjust max_records based on processing time
 
-                if not message_pack and running:
+                # Mark ready after first SUCCESSFUL poll — even when the topic is idle.
+                # The old behaviour only set this flag when a message arrived, which meant
+                # the /health/ready endpoint always reported "Kafka not ready" in a quiet
+                # system despite the broker being fully reachable.
+                # Check-then-set: capture whether this is the first transition so the log
+                # line appears exactly once even if set() were called from multiple threads.
+                first_ready = not kafka_client.consumer_ready.is_set()
+                kafka_client.consumer_ready.set()  # idempotent
+                if first_ready:
+                    log.info("Kafka consumer marked as READY (first successful poll completed)")
+
+                if not message_pack:
                     # No messages, loop continues to check running flag
                     log.debug("No messages received in poll interval.")
                     continue
-                elif not running:
+
+                if not running:
                     log.info("Shutdown signal received during poll, exiting loop.")
                     break
-
-                if not kafka_client.consumer_ready.is_set():
-                    kafka_client.consumer_ready.set()
-                    log.info("Kafka consumer marked as READY (first batch received or poll succeeded)")
-                
                 for tp, messages in message_pack.items():
                     log.info(f"Processing batch of {len(messages)} messages from partition {tp.partition}")
                     commit_needed = False

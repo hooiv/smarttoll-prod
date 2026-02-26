@@ -1,5 +1,6 @@
 import logging
 from enum import Enum
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
@@ -69,7 +70,7 @@ async def version():
     dependencies=[Depends(verify_api_key)],
 )
 async def list_transactions(
-    vehicle_id: str | None = Query(None, description="Filter by vehicle ID"),
+    vehicle_id: Annotated[str | None, Query(min_length=1, description="Filter by vehicle ID")] = None,
     status: TransactionStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),

@@ -66,6 +66,13 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Warn immediately at import time so the misconfiguration shows up in startup logs
+if not settings.SERVICE_API_KEY:
+    logging.warning(
+        "SERVICE_API_KEY is not set. All requests to authenticated endpoints "
+        "will receive HTTP 503 until the variable is configured and the service restarted."
+    )
+
 # Log loaded settings (excluding sensitive ones)
 logging.debug("Billing Service Settings Loaded:")
 loggable_settings = settings.model_dump()
