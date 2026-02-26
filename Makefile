@@ -97,7 +97,7 @@ shell-processor:
 	docker compose exec toll_processor /bin/bash
 
 shell-db:
-	docker compose exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+	docker compose exec -e POSTGRES_USER -e POSTGRES_DB postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
 migrate:
 	docker compose exec billing_service alembic upgrade head

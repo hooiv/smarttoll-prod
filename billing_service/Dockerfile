@@ -17,8 +17,8 @@ COPY ./app /app/app
 COPY alembic.ini .
 COPY alembic /app/alembic
 
-# Create a non-root user for security
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+# Create a non-root user for security and transfer ownership of /app
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 8000
