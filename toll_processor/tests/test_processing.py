@@ -330,3 +330,44 @@ def test_gps_data_accepts_current_timestamp_deterministic():
         gps = GpsData(deviceId="D1", vehicleId="V1", timestamp=now_ms,
                       latitude=40.71, longitude=-74.0)
         assert gps.timestamp == now_ms
+
+
+# --- Tests for zone_exits_total metric ---
+
+def test_zone_exits_total_incremented_on_exit(mock_dependencies, mocker):
+    """zone_exits_total counter is incremented exactly once when a vehicle exits a zone."""
+    from app import metrics
+
+    mock_exits = mocker.patch.object(
+        metrics.zone_exits_total.labels(zone_id="ZoneA"),
+        "inc",
+    )
+
+    entry_time = SAMPLE_GPS_INSIDE_ZONE.timestamp
+    prior_state = VehicleState(
+        in_zone=True, zone_id="ZoneA", rate_per_km=0.15, entry_time=entry_time,
+        distance_km=0.5, lat=40.711, lon=-74.006, last_update=entry_time, deviceId="DEV123"
+    )
+    mock_dependencies["get_state"].return_value = prior_state
+    mock_dependencies["get_zone"].return_value = None  # Vehicle exited
+
+    processing.process_gps_message(SAMPLE_GPS_OUTSIDE_ZONE.model_dump(), 200)
+
+    mock_exits.assert_called_once()
+
+
+def test_zone_exits_total_not_incremented_on_entry(mock_dependencies, mocker):
+    """zone_exits_total is NOT incremented when a vehicle enters a zone (no prior state)."""
+    from app import metrics
+
+    mock_exits = mocker.patch.object(
+        metrics.zone_exits_total.labels(zone_id="ZoneA"),
+        "inc",
+    )
+
+    mock_dependencies["get_state"].return_value = None
+    mock_dependencies["get_zone"].return_value = {"zone_id": "ZoneA", "rate_per_km": 0.15}
+
+    processing.process_gps_message(SAMPLE_GPS_INSIDE_ZONE.model_dump(), 201)
+
+    mock_exits.assert_not_called()

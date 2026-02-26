@@ -85,6 +85,10 @@ docker compose up -d zookeeper kafka redis postgres
 ## Running Unit Tests
 
 ```bash
+# Using the Makefile (recommended)
+make test
+
+# Or directly from each service directory
 cd billing_service && pytest tests/ -v
 cd toll_processor  && pytest tests/ -v
 ```
@@ -92,11 +96,14 @@ cd toll_processor  && pytest tests/ -v
 ## Running Integration Tests
 
 ```bash
-cd tests/integration
-docker compose -f docker-compose.integration.yml up -d
-# wait for services to be healthy, then:
-cd ../..
+# Using the Makefile — starts the stack, waits, runs tests, then tears down
+make test-integration
+
+# Or manually
+docker compose -f tests/integration/docker-compose.integration.yml up -d
+sleep 30  # wait for services to be healthy
 pytest tests/integration/ -v
+docker compose -f tests/integration/docker-compose.integration.yml down
 ```
 
 ## Deploying to Production
@@ -157,6 +164,8 @@ Every response includes an `X-Request-ID` header for distributed tracing.
 | GET | `/api/v1/transactions/{id}` | ✓ | Get transaction by internal ID |
 | GET | `/api/v1/transactions/status/{toll_event_id}` | ✓ | Get transaction by Toll Event ID |
 | GET | `/metrics` | — | Prometheus metrics |
+
+Transaction responses include: `id`, `toll_event_id`, `vehicle_id`, `amount`, `currency`, `status`, `retry_count`, `transaction_time`, `last_updated`, `payment_gateway_ref`, `error_message`.
 
 ---
 
