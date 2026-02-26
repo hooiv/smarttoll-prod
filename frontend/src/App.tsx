@@ -5,7 +5,7 @@ import {
   Car, CheckCircle2, ChevronRight, Clock, CloudLightning, Code2,
   Cpu, Database, ExternalLink, GitBranch, Globe, Layers,
   Map, Menu, Navigation,
-  Server, Shield, X, Zap
+  Server, Shield, Terminal, X, Zap
 } from 'lucide-react'
 
 const FadeIn = ({ children, delay = 0, direction = 'up' }: { children: React.ReactNode; delay?: number; direction?: 'up' | 'left' | 'right' | 'none' }) => {
@@ -45,9 +45,9 @@ function Navbar() {
         <nav
           className="w-full max-w-5xl flex items-center justify-between px-6 py-3 rounded-full transition-all duration-500"
           style={{
-            background: scrolled ? 'rgba(5, 8, 16, 0.9)' : 'transparent',
-            backdropFilter: scrolled ? 'blur(20px)' : 'none',
-            border: scrolled ? '1px solid rgba(59, 130, 246, 0.15)' : '1px solid transparent',
+            background: scrolled ? 'rgba(5, 8, 16, 0.92)' : 'rgba(5, 8, 16, 0.35)',
+            backdropFilter: 'blur(16px)',
+            border: scrolled ? '1px solid rgba(59, 130, 246, 0.18)' : '1px solid rgba(255,255,255,0.06)',
           }}
         >
           <div className="flex items-center gap-2">
@@ -101,21 +101,73 @@ function Navbar() {
   )
 }
 
+const PIPELINE_STEPS = [
+  { step: '01', label: 'GPS Ingestion', value: 'lat=40.714, lon=-74.006', color: '#3b82f6', icon: <Navigation className="w-3.5 h-3.5" /> },
+  { step: '02', label: 'Zone Detection', value: 'Zone1 ENTERED ✓', color: '#06b6d4', icon: <Map className="w-3.5 h-3.5" /> },
+  { step: '03', label: 'Toll Calculated', value: '$2.50 · 0.82 km', color: '#22c55e', icon: <Zap className="w-3.5 h-3.5" /> },
+  { step: '04', label: 'Payment Processed', value: 'TXN-8821 · SUCCESS', color: '#8b5cf6', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+]
+
 function Hero() {
+  const pipeline = PIPELINE_STEPS
   return (
-    <section className="relative min-h-screen flex flex-col justify-end overflow-hidden" style={{ background: '#050810' }}>
+    <section className="relative min-h-[92vh] flex flex-col justify-end overflow-hidden" style={{ background: '#050810' }}>
+      {/* Background radial glows */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full"
           style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)' }} />
         <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] rounded-full"
           style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.05) 0%, transparent 70%)' }} />
       </div>
+      {/* Grid */}
       <div className="absolute inset-0 pointer-events-none opacity-20"
         style={{
           backgroundImage: `linear-gradient(rgba(59,130,246,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.15) 1px, transparent 1px)`,
           backgroundSize: '60px 60px'
         }} />
-      <motion.div className="absolute top-32 right-8 md:right-24 card-glass rounded-2xl p-4 hidden md:block"
+
+      {/* Pipeline flow visualization — right side */}
+      <div className="hidden lg:flex flex-col gap-2 absolute right-10 xl:right-20 top-1/2 -translate-y-1/2 z-10">
+        {pipeline.map((item, i) => (
+          <div key={item.step}>
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.6 + i * 0.18, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+              className="card-glass rounded-xl px-4 py-3 flex items-center gap-3"
+              style={{ minWidth: '240px', borderLeft: `2px solid ${item.color}` }}
+            >
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                style={{ background: `${item.color}20`, color: item.color, fontFamily: 'monospace' }}>
+                {item.step}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-white mb-0.5">{item.label}</p>
+                <p className="text-xs font-mono truncate" style={{ color: item.color }}>{item.value}</p>
+              </div>
+              <span style={{ color: item.color }}>{item.icon}</span>
+            </motion.div>
+            {i < pipeline.length - 1 && (
+              <div className="flex justify-center my-1">
+                <motion.div
+                  className="w-px bg-gradient-to-b from-white/10 to-transparent"
+                  style={{ height: '16px' }}
+                  initial={{ scaleY: 0 }} animate={{ scaleY: 1 }}
+                  transition={{ delay: 0.7 + i * 0.18, duration: 0.4 }}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+        <motion.p
+          className="text-center text-xs text-white/20 uppercase tracking-widest mt-2 font-mono"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.4 }}>
+          event pipeline
+        </motion.p>
+      </div>
+
+      {/* Floating metric cards */}
+      <motion.div className="absolute top-28 right-8 md:right-24 card-glass rounded-2xl p-4 hidden md:block lg:hidden"
         animate={{ y: [0, -8, 0] }} transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.2)' }}>
@@ -127,7 +179,7 @@ function Hero() {
           </div>
         </div>
       </motion.div>
-      <motion.div className="absolute top-56 right-8 md:right-16 card-glass rounded-2xl p-4 hidden md:block"
+      <motion.div className="absolute top-48 right-8 md:right-16 card-glass rounded-2xl p-4 hidden md:block lg:hidden"
         animate={{ y: [0, 8, 0] }} transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.2)' }}>
@@ -139,8 +191,10 @@ function Hero() {
           </div>
         </div>
       </motion.div>
-      <div className="relative z-10 section-padding pb-32">
-        <div className="max-w-7xl mx-auto">
+
+      {/* Main content */}
+      <div className="relative z-10 section-padding pb-20">
+        <div className="max-w-7xl mx-auto lg:max-w-[55%]">
           <FadeIn delay={0.1} direction="none">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold uppercase tracking-widest mb-8"
               style={{ border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.1)', color: '#60a5fa' }}>
@@ -236,12 +290,12 @@ function Architecture() {
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
             Three Services.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>One Seamless Pipeline.</span>
           </h2>
-          <p className="text-white/50 max-w-xl mb-16 text-lg">Event-driven microservices architecture built for throughput, resilience, and observability.</p>
+          <p className="text-white/50 max-w-xl mb-8 text-lg">Event-driven microservices architecture built for throughput, resilience, and observability.</p>
         </FadeIn>
-        <div className="grid md:grid-cols-3 gap-6 mb-16">
+        <div className="grid md:grid-cols-3 gap-6 mb-8">
           {services.map((svc, i) => (
             <FadeIn key={svc.name} delay={i * 0.15}>
-              <div className="card-glass rounded-2xl p-6 hover:border-blue-500/20 transition-all duration-300 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="card-glass card-hover rounded-2xl p-6 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${svc.color}` }}>
                 <div className="flex items-start justify-between mb-6">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: `${svc.color}20`, border: `1px solid ${svc.color}30` }}>
                     <span style={{ color: svc.color }}>{svc.icon}</span>
@@ -434,7 +488,7 @@ function ApiSection() {
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
             OpenAPI documented.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>Production ready.</span>
           </h2>
-          <p className="text-white/50 text-lg max-w-xl mb-12">
+          <p className="text-white/50 text-lg max-w-xl mb-8">
             Full Swagger UI at <code className="font-mono text-blue-400 text-sm bg-blue-400/10 px-2 py-0.5 rounded">localhost:8001/docs</code> with request/response schemas and live testing.
           </p>
         </FadeIn>
@@ -464,21 +518,21 @@ function ApiSection() {
           </div>
           <FadeIn delay={0.2} direction="right">
             <div className="space-y-4">
-              <div className="card-glass rounded-2xl p-6">
+              <div className="card-glass card-hover rounded-2xl p-6">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(59,130,246,0.1)' }}>
                   <Shield className="w-5 h-5 text-blue-400" />
                 </div>
                 <h3 className="font-bold text-white mb-2">API Key Auth</h3>
                 <p className="text-sm text-white/50">Constant-time HMAC key comparison. Set via <code className="font-mono text-xs text-blue-400">SERVICE_API_KEY</code> env var.</p>
               </div>
-              <div className="card-glass rounded-2xl p-6">
+              <div className="card-glass card-hover rounded-2xl p-6">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(6,182,212,0.1)' }}>
                   <GitBranch className="w-5 h-5 text-cyan-400" />
                 </div>
                 <h3 className="font-bold text-white mb-2">Request Tracing</h3>
                 <p className="text-sm text-white/50">Every response includes <code className="font-mono text-xs text-cyan-400">X-Request-ID</code> header for distributed tracing.</p>
               </div>
-              <div className="card-glass rounded-2xl p-6">
+              <div className="card-glass card-hover rounded-2xl p-6">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: 'rgba(139,92,246,0.1)' }}>
                   <BarChart3 className="w-5 h-5 text-purple-400" />
                 </div>
@@ -515,12 +569,12 @@ function About() {
           <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-4">
             Built for reliability.<br /><span style={{ color: 'rgba(242,242,242,0.4)' }}>Engineered for scale.</span>
           </h2>
-          <p className="text-white/50 text-lg max-w-xl mb-12">SmartToll is a production-grade microservices platform using battle-tested infrastructure at every layer.</p>
+          <p className="text-white/50 text-lg max-w-xl mb-8">SmartToll is a production-grade microservices platform using battle-tested infrastructure at every layer.</p>
         </FadeIn>
         <div className="grid md:grid-cols-2 gap-4">
           {features.map((feat, i) => (
             <FadeIn key={feat.title} delay={i * 0.1}>
-              <div className="card-glass rounded-2xl p-8 transition-all duration-300 hover:scale-[1.02] h-full" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="card-glass card-hover rounded-2xl p-8 h-full" style={{ border: '1px solid rgba(255,255,255,0.06)', borderTop: `2px solid ${feat.color}` }}>
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ background: `${feat.color}15`, border: `1px solid ${feat.color}25` }}>
                   <span style={{ color: feat.color }}>{feat.icon}</span>
                 </div>
@@ -556,9 +610,24 @@ function CTA() {
                   of toll infrastructure.
                 </span>
               </h2>
-              <p className="text-white/50 text-lg max-w-xl mx-auto mb-10">
-                One <code className="font-mono text-blue-400 text-sm">docker compose up</code> command. Full Kafka, PostgreSQL, Redis, and three microservices — ready in under 2 minutes.
+              <p className="text-white/50 text-lg max-w-xl mx-auto mb-8">
+                One command. Full Kafka, PostgreSQL, Redis, and three microservices — ready in under 2 minutes.
               </p>
+              {/* Quick start code block */}
+              <div className="max-w-lg mx-auto mb-10 rounded-xl overflow-hidden text-left" style={{ background: '#0a0d16', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <div className="flex items-center gap-2 px-4 py-2.5" style={{ background: '#0f1420', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <Terminal className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-xs text-white/40 font-mono">Quick Start</span>
+                </div>
+                <div className="px-4 py-4 space-y-1.5 font-mono text-sm">
+                  <p><span className="text-white/30"># 1. Copy env file</span></p>
+                  <p><span className="text-blue-400">cp</span> <span className="text-white/70">.env.example .env</span></p>
+                  <p className="pt-1"><span className="text-white/30"># 2. Start all 7 services</span></p>
+                  <p><span className="text-blue-400">docker</span> <span className="text-cyan-400">compose</span> <span className="text-white/70">up -d</span></p>
+                  <p className="pt-1"><span className="text-white/30"># 3. Open Swagger UI</span></p>
+                  <p><span className="text-blue-400">open</span> <span className="text-green-400">http://localhost:8001/docs</span></p>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-4 justify-center">
                 <a href="http://localhost:8001/docs" target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 px-8 py-4">
                   Open Swagger UI
