@@ -3,6 +3,7 @@ import threading
 import json
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
 from prometheus_client import start_http_server
 from app import kafka_client, database, state, tracks
@@ -110,6 +111,11 @@ def _load_zones():
     return zones
 
 
+class ThreadingHealthServer(ThreadingMixIn, HTTPServer):
+    """Serve health checks while a map stream is held open."""
+    daemon_threads = True
+
+
 http_server = None
 server_thread = None
 
@@ -123,7 +129,7 @@ def start_health_server():
     def serve():
         global http_server
         try:
-            http_server = HTTPServer(('', HEALTH_PORT), HealthCheckHandler)
+            http_server = ThreadingHealthServer(('', HEALTH_PORT), HealthCheckHandler)
             log.info(f'Starting health server on port {HEALTH_PORT}')
             http_server.serve_forever()
         except Exception:

@@ -157,6 +157,10 @@ export default function App() {
       <a className="skip" href="#ledger">Skip to transactions</a>
       <header className="topbar">
         <div className="brand">
+          <svg className="mark" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="6" fill="#0c6b52" />
+            <path fill="#f4f5f7" d="M6 6h6v20H6zM6 9h20v5H6zM18 20h8v4h-8z" />
+          </svg>
           <strong>SmartToll</strong>
           <span>Operations</span>
           <span className={`pill ${billingLink === 'live' && mapLink === 'live' ? 'up' : 'degraded'}`} role="status">

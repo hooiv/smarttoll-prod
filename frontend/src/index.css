@@ -60,7 +60,8 @@ button, input { font: inherit; color: inherit; }
   border-bottom: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .mark { display: block; width: 28px; height: 28px; flex: none; }
 .brand strong { font-size: 15px; letter-spacing: -0.02em; }
 .brand span { color: var(--muted); font-size: 13px; }
 

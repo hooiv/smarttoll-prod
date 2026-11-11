@@ -61,6 +61,18 @@ server {
         proxy_set_header Host $proxy_host;
     }
 
+    location = /site.webmanifest {
+        default_type application/manifest+json;
+    }
+
+    location = /favicon.svg {
+        default_type image/svg+xml;
+    }
+
+    location = /favicon.ico {
+        default_type image/x-icon;
+    }
+
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
