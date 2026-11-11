@@ -1,205 +1,129 @@
-# SmartToll - Toll Processing System
+# SmartToll
 
-A modern, scalable microservices architecture for processing GPS data from vehicles, calculating toll charges, and handling billing.
-
-## System Overview
-
-SmartToll consists of three main components:
-
-1. **OBU Simulator**: Generates simulated GPS data from vehicles and publishes it to Kafka.
-2. **Toll Processor**: Processes real-time GPS data, detects when vehicles enter/exit toll zones, and calculates toll charges.
-3. **Billing Service**: Handles toll event consumption, payment processing, and provides a REST API for transaction status.
-
-## Tech Stack
-
-- **Messaging**: Apache Kafka (with Zookeeper)
-- **Cache**: Redis 7
-- **Database**: PostgreSQL 15 with PostGIS extension
-- **API**: FastAPI + Uvicorn (Billing Service)
-- **Observability**: Prometheus metrics on every service
-- **Container Orchestration**: Docker Compose
-
-## Prerequisites
-
-- Docker & Docker Compose v2 (`docker compose` CLI)
-- Python 3.11+ (only needed for local non-Docker development)
-
-## Quick Start (Docker Compose)
+SmartToll turns a stream of vehicle GPS fixes into toll charges. A simulator (or any producer) publishes positions to Kafka. The toll processor decides when a vehicle enters and leaves a zone, and the billing service records an idempotent charge. Everything runs locally with one command and no paid accounts.
 
 ```bash
-# 1. Create .env from the template
 cp .env.example .env
-
-# 2. Build and start all services (single command — reliable from a cold start)
 docker compose up -d
-
-# 3. Verify all 7 services are healthy
-docker compose ps
 ```
 
-Services are available at:
+`docker compose ps` should show every service healthy, including the simulator. The first startup builds images and waits for Kafka, so give it a couple of minutes.
 
-| Service | URL |
+| Surface | URL |
 |---|---|
-| Billing API (Swagger UI) | http://localhost:8001/docs |
-| Billing liveness | http://localhost:8001/api/v1/health/live |
-| Billing readiness | http://localhost:8001/api/v1/health/ready |
-| Billing Prometheus metrics | http://localhost:8001/metrics |
-| Toll Processor liveness | http://localhost:8080/health/live |
-| Toll Processor Prometheus metrics | http://localhost:8081/ |
+| Operations console | http://localhost:3000 |
+| Billing API (Swagger) | http://localhost:8001/docs |
+| Grafana | http://localhost:3001 |
+| Prometheus | http://localhost:9090 |
+| Toll processor liveness | http://localhost:8080/health/live |
+| Toll processor metrics | http://localhost:8081/ |
+| Simulator readiness | http://localhost:8082/health/ready |
 
-## Environment Variables
+The operations console at port 3000 is a real view of the stack: recent transactions, payment totals, pipeline health, and a map of Zone1 with the processor's recent GPS trails. nginx proxies `/api`, `/processor`, and `/simulator`, and attaches the API key on the server. The browser bundle does not contain it. Direct calls to the billing service still send `X-API-KEY` (the value in `.env`, default `supersecretapikey123`).
 
-All configuration lives in the root `.env` file. See `.env.example` for the full list with documentation. Key variables:
+Grafana opens anonymously as a viewer. The local admin password is `admin` unless `GRAFANA_ADMIN_PASSWORD` is set. Do not expose that port as-is.
 
-```ini
-# Postgres
-POSTGRES_DB=smarttoll_dev
-POSTGRES_USER=smarttoll_user
-POSTGRES_PASSWORD=changeme_in_prod_123!
+## Architecture
 
-# Billing API authentication (required)
-SERVICE_API_KEY=supersecretapikey123
-
-# Optional tuning
-LOG_LEVEL=INFO
-MOCK_PAYMENT_FAIL_RATE=0.1   # 0.0 = always succeed, 1.0 = always fail
+```mermaid
+flowchart LR
+  OBU[OBU simulator] -->|GPS| K[Kafka]
+  K -->|smarttoll.gps.raw.v1| TP[Toll processor]
+  TP -->|zone lookup| PG[(Postgres + PostGIS)]
+  TP -->|vehicle state| R[(Redis)]
+  TP -->|smarttoll.toll.events.v1| K
+  K --> B[Billing service]
+  B -->|charge| GW[Payment gateway]
+  B -->|transactions| PG
+  B -->|dead letter| K
+  UI[Dashboard] -->|/api proxy| B
+  P[Prometheus] --> B
+  P --> TP
+  G[Grafana] --> P
 ```
 
-## Running Locally (Without Docker)
+One GPS fix is handled like this:
 
-### Linux / macOS
+1. The simulator publishes a point on `smarttoll.gps.raw.v1`, keyed by vehicle id, with a `traceId`.
+2. The processor drops points older than 10 minutes or more than 60 seconds in the future.
+3. PostGIS `ST_Contains` answers whether the point is inside a toll zone. Zones are seeded on startup (Zone1 covers the simulator's NYC route, $0.15/km).
+4. Redis holds the in-zone state for 6 hours. Distance is the sum of Haversine segments.
+5. On exit, the processor publishes one toll event. The event id is the idempotency key for everything downstream.
+6. Billing inserts a `PENDING` row, calls the gateway, then stores `SUCCESS` or `FAILED`. A second delivery of the same event id does not charge again.
+7. A malformed event, or a transient failure that exhausts `BILLING_MAX_PROCESS_ATTEMPTS` (default 5), is copied to `smarttoll.billing.dlq.v1` and the offset is committed so the partition keeps moving. The processor already publishes its own failures to `smarttoll.processor.errors.v1`.
+
+## Design decisions
+
+**Kafka is the contract.** Services do not call each other. A restart with `auto_offset_reset=earliest` and manual commits replays anything not yet committed. Billing's unique `toll_event_id` makes that replay safe.
+
+**Liveness is not readiness.** HTTP servers bind before Kafka is up and keep retrying with exponential backoff, capped at 15 seconds. Compose healthchecks hit `/health/live`. `/health/ready` stays 503 until the consumer has polled and the database answers. `restart: unless-stopped` covers a process that does exit.
+
+**The payment gateway is an interface.** `PAYMENT_GATEWAY=mock` (the default) never leaves the process. Failures happen only when `MOCK_PAYMENT_FAIL_RATE` or `MOCK_PAYMENT_TIMEOUT_RATE` is above 0, so a demo is deterministic. `PAYMENT_GATEWAY=stripe` builds a Stripe test-mode PaymentIntent (`pm_card_visa`) and sends the toll event id as the Idempotency-Key. Live secret keys are rejected at startup. Stripe's minimum charge is $0.50; smaller tolls are recorded in metadata and charged at the minimum.
+
+**Migrations own the billing schema.** Alembic runs before Uvicorn (`0001` table, `0002` `last_updated` trigger). `create_all` on startup is a safety net for a database that has not been migrated, not a second source of truth.
+
+**The dashboard is a backend-for-frontend, not a second client of the secret.** nginx injects `X-API-KEY`. The browser only talks to port 3000. Anyone who can open the dashboard can see transactions. That is acceptable for a local demo and is the wrong shape for a public internet deployment.
+
+**Metrics are scraped, not logged.** Billing exposes `/metrics`. The processor exposes Prometheus on port 8081. Grafana is provisioned with a SmartToll dashboard so `docker compose up` is enough.
+
+## Configuration
+
+All of it is in `.env`, copied from `.env.example`. The values there are local defaults, not production secrets. Compose overrides hostnames (`kafka`, `postgres`, `redis`) inside the network.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PAYMENT_GATEWAY` | `mock` | `mock` or `stripe` |
+| `STRIPE_API_KEY` | unset | Required for `stripe`. Must start with `sk_test_` or `rk_test_` |
+| `MOCK_PAYMENT_FAIL_RATE` | `0.0` | Fraction of mock charges that decline |
+| `MOCK_PAYMENT_TIMEOUT_RATE` | `0.0` | Fraction of mock charges that time out |
+| `SERVICE_API_KEY` | `supersecretapikey123` | Required on `/api/v1/transactions*` |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | Local Grafana admin |
+
+Containers run as non-root. The Python Kafka client is pinned to `kafka-python-ng==2.2.3` everywhere. Do not also install `kafka-python`: both distributions write the `kafka` package, and 3.x removes `NoBrokersAvailable`.
+
+## Tests
+
 ```bash
-cp .env.example .env
-docker compose up -d zookeeper kafka redis postgres   # infrastructure only
-./run_local.sh                                        # Python services in background
+make test                 # unit tests, no Docker
+make lint
+make test-integration     # Compose stack on ports 9093 / 6380 / 5433, then pytest
+python scripts/load_trips.py --vehicles 20   # optional, stack must already be up
 ```
 
-### Windows (PowerShell)
-```powershell
-Copy-Item .env.example .env
-docker compose up -d zookeeper kafka redis postgres
-.\run_local.ps1
-```
+GitHub Actions runs lint, both unit suites, the integration test, and `docker compose build` on every push and pull request.
 
-## Running Unit Tests
+## API
 
-```bash
-# Using the Makefile (recommended)
-make test
+Transaction routes require `X-API-KEY`. Every response carries `X-Request-ID`, and the billing logs include that id.
 
-# Or directly from each service directory
-cd billing_service && pytest tests/ -v
-cd toll_processor  && pytest tests/ -v
-```
-
-## Running Integration Tests
-
-```bash
-# Using the Makefile — starts the stack, waits, runs tests, then tears down
-make test-integration
-
-# Or manually
-docker compose -f tests/integration/docker-compose.integration.yml up -d
-sleep 30  # wait for services to be healthy
-pytest tests/integration/ -v
-docker compose -f tests/integration/docker-compose.integration.yml down
-```
-
-## Deploying to Production
-
-1. Push images to your registry:
-   ```bash
-   docker tag smarttoll-prod-billing_service  my-registry/billing_service:1.0.0
-   docker tag smarttoll-prod-toll_processor   my-registry/toll_processor:1.0.0
-   docker push my-registry/billing_service:1.0.0
-   docker push my-registry/toll_processor:1.0.0
-   ```
-2. Provision external Kafka, Redis, and PostgreSQL (PostGIS) instances.
-3. Deploy with your orchestrator (Kubernetes, ECS, Fly.io, …):
-   - **Liveness** probe: `GET /api/v1/health/live` (billing) or `GET /health/live` (processor)
-   - **Readiness** probe: `GET /api/v1/health/ready` (billing) or `GET /health/ready` (processor)
-   - **Prometheus** scrape: `/metrics` (billing, port 8000) or port `8081` (processor)
-4. Set all required env vars as secrets in your orchestrator.
-
----
-
-## Architecture Diagram
-
-```
-+----------------+      +-------------------+      +-------------------+
-|  OBU Simulator | ---> |   Kafka Broker    | ---> |   Toll Processor  |
-+----------------+      |  (GPS raw topic)  |      |  (geofence logic) |
-                         +-------------------+      +--------+----------+
-                                |                            |
-                         (toll events topic)        Redis (vehicle state)
-                                |                  Postgres+PostGIS (zones)
-                         +------v------------+
-                         |  Billing Service  |
-                         |  (FastAPI + async |
-                         |   Kafka consumer) |
-                         +-------------------+
-                                |
-                         Postgres (billing_transactions)
-```
-
----
-
-## API Reference
-
-The Billing Service exposes a REST API documented with OpenAPI/Swagger:
-
-- **Swagger UI**: http://localhost:8001/docs
-- **ReDoc**: http://localhost:8001/redoc
-
-All `*/transactions*` endpoints require the `X-API-KEY` request header.
-Every response includes an `X-Request-ID` header for distributed tracing.
-
-| Method | Path | Auth | Description |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/v1/health/live` | — | Liveness probe |
-| GET | `/api/v1/health/ready` | — | Readiness probe (checks DB + Kafka consumer) |
-| GET | `/api/v1/version` | — | Service version |
-| GET | `/api/v1/transactions` | ✓ | List transactions (filter by `vehicle_id`, `status`; paginated) |
-| GET | `/api/v1/transactions/{id}` | ✓ | Get transaction by internal ID |
-| GET | `/api/v1/transactions/status/{toll_event_id}` | ✓ | Get transaction by Toll Event ID |
-| GET | `/metrics` | — | Prometheus metrics |
+| GET | `/api/v1/health/live` | no | Process is up |
+| GET | `/api/v1/health/ready` | no | Database and Kafka consumer |
+| GET | `/api/v1/version` | no | Build version |
+| GET | `/api/v1/transactions` | yes | Paginated list. Filters: `vehicle_id`, `status` |
+| GET | `/api/v1/transactions/summary` | yes | Counts and amounts by status |
+| GET | `/tracks` | no | Recent GPS trails (processor, port 8080) |
+| GET | `/zones` | no | Toll zones as GeoJSON (processor, port 8080) |
+| GET | `/api/v1/transactions/{id}` | yes | One row by internal id |
+| GET | `/api/v1/transactions/status/{toll_event_id}` | yes | One row by event id |
+| GET | `/metrics` | no | Prometheus |
 
-Transaction responses include: `id`, `toll_event_id`, `vehicle_id`, `amount`, `currency`, `status`, `retry_count`, `transaction_time`, `last_updated`, `payment_gateway_ref`, `error_message`.
+## Trade-offs left in on purpose
 
----
+- **One Kafka broker and ZooKeeper.** Confluent 7.3 is what the cgroup v2 workaround in Compose was written for. KRaft would be the production broker topology; it does not change the application contract.
+- **No Kubernetes manifests.** The probes and metrics endpoints are the contract an orchestrator needs. Compose is the thing a reviewer can run.
+- **Haversine, not a road network.** Distance is the GPS path, not a map-matched route. PostGIS is used for the geofence, where a spatial index matters.
+- **Retry counts for billing live in memory.** A restart redelivers uncommitted offsets, and the database unique key stops a double charge. The counter itself does not survive a crash, which is the point of the database check.
+- **The in-zone trip is not an outbox.** If the process dies after computing a toll and before Kafka accepts it, that exit can be lost. A transactional outbox is the next step if the charge must be exactly-once rather than at-least-once-with-idempotency.
+- **Formatter debt.** `.flake8` ignores the pre-existing whitespace style so CI can fail on new classes of defect. Reformatting the tree would bury behavior changes.
+- **No hours-long soak in CI.** `scripts/load_trips.py` is the load check. CI covers one full trip through Kafka, PostGIS, Redis, and Postgres.
 
-## Contributing
+## Development
 
-1. Fork the repository and create a feature branch.
-2. Install dev dependencies: `pip install -r requirements-dev.txt`
-3. Run unit tests: `cd billing_service && pytest tests/ -v`
-4. Ensure code follows PEP 8 with type hints and docstrings.
-5. Open a pull request with a clear description.
+Python 3.11 or newer. Install each service from its own `requirements.txt` plus `requirements-dev.txt`. The root `requirements-dev.txt` is the integration-test client and uses the same Kafka library.
 
----
-
-## Service Details
-
-### OBU Simulator
-
-Simulates a vehicle's OBU sending GPS data along a predefined NYC route (lat 40.700→40.720, lon -74.010→-74.000) that passes through **Zone1** (seeded automatically by the Toll Processor on startup).
-
-### Toll Processor
-
-- Consumes GPS data from Kafka
-- Maintains vehicle state in Redis (6-hour TTL)
-- Detects zone entry/exit using PostGIS `ST_Contains` (spatial GiST index on `toll_zones.geom`)
-- Validates GPS timestamps (rejects messages older than 10 min or more than 60 s in the future)
-- Calculates toll charges using the Haversine formula
-- Publishes toll events to Kafka
-- Exposes HTTP health/readiness and Prometheus metrics
-
-### Billing Service
-
-- Consumes toll events from Kafka (`auto_offset_reset=earliest` — no events lost during restarts)
-- Creates billing transactions with idempotency (deduplication by `toll_event_id`)
-- Processes payments via configurable gateway (mock by default)
-- Tracks `retry_count` per transaction; `last_updated` auto-managed by a DB trigger
-- REST API with constant-time API key auth, CORS middleware, and `X-Request-ID` tracing header
-- Prometheus metrics: transaction counters, payment duration histogram, Kafka consumer throughput
+```bash
+cd billing_service && python -m pytest tests/ -q
+cd toll_processor && python -m pytest tests/ -q
+```

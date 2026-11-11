@@ -87,6 +87,12 @@ services:
     networks:
       - default
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health/ready', timeout=2).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
 
   toll_processor:
     build:

@@ -12,11 +12,13 @@ RUN npm run build
 # ── Production stage ───────────────────────────────────────────────────────
 FROM nginx:alpine AS production
 
-# Remove default nginx config
+# Remove default nginx config. The official entrypoint renders templates at start
+# so BILLING_UPSTREAM and BILLING_API_KEY can be injected without a rebuild.
 RUN rm /etc/nginx/conf.d/default.conf
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
-# Custom nginx config for SPA (React Router fallback)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ENV BILLING_UPSTREAM=http://billing_service:8000 \
+    BILLING_API_KEY=supersecretapikey123
 
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html

@@ -6,7 +6,10 @@ import signal
 import sys
 import time
 import threading
+import uuid
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from kafka import KafkaProducer
@@ -46,6 +49,42 @@ current_step = 0
 running = True
 producer: Optional[KafkaProducer] = None
 producer_lock = threading.Lock() # Lock for producer initialization
+producer_connected = threading.Event()
+HEALTH_PORT = int(os.environ.get("SIM_HEALTH_PORT", "8082"))
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/health/live":
+            self._send(200, {"status": "live"})
+        elif path == "/health/ready":
+            ready = producer_connected.is_set()
+            self._send(200 if ready else 503, {"status": "ready" if ready else "not ready"})
+        else:
+            self._send(404, {"status": "not found"})
+
+    def _send(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        return
+
+
+def start_health_server():
+    def _serve():
+        try:
+            httpd = HTTPServer(("0.0.0.0", HEALTH_PORT), _HealthHandler)
+            logger.info("Simulator health server listening on port %s", HEALTH_PORT)
+            httpd.serve_forever()
+        except Exception:
+            logger.exception("Simulator health server failed")
+    threading.Thread(target=_serve, name="sim-health", daemon=True).start()
 
 # --- Kafka Producer Logic ---
 def _initialize_kafka_producer() -> Optional[KafkaProducer]:
@@ -132,11 +171,23 @@ def run_simulation():
     logger.info(f"  Target Topic: {GPS_TOPIC}")
     logger.info(f"  Target Broker: {KAFKA_BROKER}")
     logger.info(f"  Send Interval: {SEND_INTERVAL_SECONDS}s")
+    start_health_server()
 
-    prod = get_kafka_producer() # Initialize producer, retries handled internally
-    if not prod:
-        logger.critical("Failed to initialize Kafka producer. Cannot run simulation.")
-        sys.exit(1)
+    prod = None
+    attempt = 0
+    while running and prod is None:
+        attempt += 1
+        try:
+            prod = get_kafka_producer(retry_attempts=1)
+        except Exception:
+            delay = min(15, 2 ** min(attempt, 4))
+            logger.warning("Kafka not ready (attempt %s). Retrying in %ss.", attempt, delay)
+            time.sleep(delay)
+            prod = None
+    if not running or prod is None:
+        logger.warning("Simulator stopping before Kafka became ready.")
+        return
+    producer_connected.set()
 
     logger.info("Starting GPS simulation loop...")
     while running:
@@ -153,6 +204,7 @@ def run_simulation():
         payload = {
             "deviceId": DEVICE_ID,
             "vehicleId": VEHICLE_ID,
+            "traceId": str(uuid.uuid4()),
             "timestamp": int(time.time() * 1000), # Epoch milliseconds UTC
             "latitude": round(lat, 6),
             "longitude": round(lon, 6),

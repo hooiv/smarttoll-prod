@@ -1,5 +1,6 @@
 import logging
 import time
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any
 from math import radians, cos, sin, asin, sqrt
@@ -12,6 +13,7 @@ from app import state as vehicle_state_manager
 from app import database as db_manager
 from app import kafka_client
 from app import metrics
+from app import tracks
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float
     vehicle_state_manager.update_vehicle_state(vehicle_id, new_state)
     metrics.zone_entries_total.labels(zone_id=zone_id).inc()
 
-def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, exit_timestamp_ms: int, exit_lat: float, exit_lon: float):
+def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, exit_timestamp_ms: int, exit_lat: float, exit_lon: float, trace_id: str | None = None):
     """Handles logic when a vehicle exits a zone, calculates toll, sends event."""
     log.info(f"Vehicle {vehicle_id} (Device: {device_id}) EXITED toll zone {last_state.zone_id}.")
     metrics.zone_exits_total.labels(zone_id=last_state.zone_id).inc()
@@ -106,7 +108,8 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
             ratePerKm=rate,
             tollAmount=toll_amount,
             currency="USD", # Get from config or zone data in future
-            processedTimestamp=int(time.time() * 1000)
+            processedTimestamp=int(time.time() * 1000),
+            traceId=trace_id or str(uuid.uuid4()),
         )
 
         # Publish the toll event to Kafka
@@ -202,6 +205,7 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
     # These return None on error, handled within the functions
     last_state = vehicle_state_manager.get_vehicle_state(vehicle_id)
     current_zone_info = db_manager.get_current_toll_zone(lat, lon) # Uses DB pool
+    tracks.record(vehicle_id, lat, lon, timestamp_ms, current_zone_info is not None)
 
     # --- 3. State Machine Logic ---
     try:
@@ -227,7 +231,7 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
                     # Moved directly to a *different* zone: Exit old, Enter new
                     log.info(f"Vehicle {vehicle_id} moved from {last_state.zone_id} to {current_zone_id}")
                     # Exit previous zone using current point as the segment end
-                    handle_zone_exit(vehicle_id, device_id, last_state, timestamp_ms, lat, lon)
+                    handle_zone_exit(vehicle_id, device_id, last_state, timestamp_ms, lat, lon, gps_data.traceId)
                     # Enter the new zone
                     handle_zone_entry(vehicle_id, device_id, current_zone_id, current_rate, timestamp_ms, lat, lon)
             else:
@@ -237,7 +241,7 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
             # Outside a toll zone
             if last_state and last_state.in_zone:
                 # Just exited a toll zone
-                handle_zone_exit(vehicle_id, device_id, last_state, timestamp_ms, lat, lon)
+                handle_zone_exit(vehicle_id, device_id, last_state, timestamp_ms, lat, lon, gps_data.traceId)
             else:
                 # Still outside, do nothing (state already cleared or never existed)
                  log.debug(f"Vehicle {vehicle_id} remains outside toll zones.")

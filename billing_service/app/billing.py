@@ -19,7 +19,10 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     4. Updates the transaction record status.
     5. Publishes the payment result.
     """
-    log.info(f"Received Toll Event for processing: EventID={event_data.eventId}, Vehicle={event_data.vehicleId}")
+    log.info(
+        "Received Toll Event for processing: EventID=%s, Vehicle=%s, traceId=%s",
+        event_data.eventId, event_data.vehicleId, getattr(event_data, "traceId", None),
+    )
 
     # --- 1. Idempotency Check ---
     # Check if this toll_event_id has already been processed successfully or is pending

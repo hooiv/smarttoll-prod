@@ -1,2 +1,2 @@
-kafka-python-ng>=2.2.0
+kafka-python-ng==2.2.3
 python-dotenv>=1.0.0

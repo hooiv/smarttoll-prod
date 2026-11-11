@@ -1,6 +1,5 @@
 import logging
 import signal
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -151,20 +150,31 @@ def run_service():
 
     log.info("Starting SmartToll Toll Processor Service...")
     metrics.service_up.set(1)
+    # Liveness is up before Kafka is. Readiness stays false until the consumer polls.
+    health_server.start_health_server()
 
-    # Initialize external dependencies (retry logic is within the getters)
-    try:
-        kafka_client.get_kafka_producer() # Init producer early
-        kafka_client.get_kafka_consumer() # Init consumer
-        database.get_db_pool()            # Init DB pool
-        init_db_schema()                  # Ensure schema/tables exist
-        state.get_redis_client()          # Init Redis client
-    except Exception as e:
-        log.critical(f"Failed to initialize critical dependencies during startup: {e}", exc_info=True)
-        sys.exit(1) # Exit if essential services can't be reached
+    attempt = 0
+    while running:
+        attempt += 1
+        try:
+            kafka_client.get_kafka_producer(retry_attempts=1)
+            kafka_client.get_kafka_consumer(retry_attempts=1)
+            database.get_db_pool(retry_attempts=1)
+            init_db_schema()
+            state.get_redis_client(retry_attempts=1)
+            break
+        except Exception as e:
+            delay = min(15, 2 ** min(attempt, 4))
+            log.warning(
+                "Dependencies not ready (attempt %s): %s. Retrying in %ss.",
+                attempt, e, delay,
+            )
+            time.sleep(delay)
+    if not running:
+        log.warning("Shutdown requested before dependencies became ready.")
+        return
 
     log.info("Dependencies initialized. Starting consumer thread...")
-    health_server.start_health_server()
 
     # Use ThreadPoolExecutor to easily get exceptions from the thread
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="KafkaConsumerThread")

@@ -4,7 +4,7 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from prometheus_client import start_http_server
-from app import kafka_client, database, state
+from app import kafka_client, database, state, tracks
 
 log = logging.getLogger(__name__)
 HEALTH_PORT = 8080
@@ -15,6 +15,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == '/health/live':
             self._send(200, {'status': 'live'})
+        elif path == '/tracks':
+            self._send(200, {'vehicles': tracks.snapshot()})
+        elif path == '/zones':
+            self._send(200, {'zones': _load_zones()})
         elif path == '/health/ready':
             errors = []
             # Kafka
@@ -49,6 +53,36 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
     def log_message(self, fmt, *args): log.debug(fmt % args)
+
+def _load_zones():
+    """Return toll zones as GeoJSON polygons for the operations map."""
+    try:
+        with database.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT zone_id, zone_name, rate_per_km, ST_AsGeoJSON(geom) AS geojson
+                    FROM toll_zones
+                    ORDER BY zone_id
+                    """
+                )
+                rows = cur.fetchall()
+    except Exception:
+        log.exception("Failed to read toll zones for the map")
+        return []
+    zones = []
+    for row in rows:
+        geojson = row["geojson"]
+        if isinstance(geojson, str):
+            geojson = json.loads(geojson)
+        zones.append({
+            "zoneId": row["zone_id"],
+            "name": row["zone_name"],
+            "ratePerKm": float(row["rate_per_km"]),
+            "geojson": geojson,
+        })
+    return zones
+
 
 http_server = None
 server_thread = None

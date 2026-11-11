@@ -27,14 +27,39 @@ PAYMENT_TOPIC = "smarttoll.payment.events.v1"
 # Explicit version avoids slow Kafka broker-version probing on startup
 _KAFKA_VERSION = (3, 3, 1)
 
+def _wait_until(check, timeout_s=120, pause_s=2):
+    """Poll a dependency until it accepts a connection or the deadline passes."""
+    deadline = time.time() + timeout_s
+    last_error = None
+    while time.time() < deadline:
+        try:
+            check()
+            return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(pause_s)
+    raise RuntimeError(f"dependency not ready after {timeout_s}s: {last_error}")
+
+
 @pytest.fixture(scope="module", autouse=True)
 def wait_for_services():
-    time.sleep(15)  # wait for docker services to be healthy
-    # verify each service
-    KafkaProducer(bootstrap_servers=KAFKA_BROKER, api_version=_KAFKA_VERSION, request_timeout_ms=5000).close()
-    Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=5).ping()
-    conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS, connect_timeout=5)
-    conn.close()
+    def _kafka():
+        KafkaProducer(
+            bootstrap_servers=KAFKA_BROKER, api_version=_KAFKA_VERSION, request_timeout_ms=5000,
+        ).close()
+
+    def _redis():
+        Redis(host=REDIS_HOST, port=REDIS_PORT, socket_connect_timeout=5).ping()
+
+    def _postgres():
+        conn = psycopg2.connect(
+            host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS, connect_timeout=5,
+        )
+        conn.close()
+
+    _wait_until(_kafka)
+    _wait_until(_redis)
+    _wait_until(_postgres)
 
 @pytest.fixture(scope="module")
 def kafka_producer():
@@ -122,6 +147,17 @@ def redis_client():
     cli.flushdb()
 
 
+def _next_where(consumer, predicate, limit=40):
+    """Skip events from the always-on simulator and return the first match."""
+    for _ in range(limit):
+        message = next(consumer, None)
+        if message is None:
+            return None
+        if predicate(message.value):
+            return message
+    return None
+
+
 def test_full_flow(kafka_producer, toll_consumer, payment_consumer, db_conn, redis_client):
     vehicle_id = f"veh_{uuid.uuid4().hex[:6]}"
     device_id = "dev123"
@@ -135,13 +171,13 @@ def test_full_flow(kafka_producer, toll_consumer, payment_consumer, db_conn, red
     kafka_producer.send(GPS_TOPIC, key=vehicle_id, value=exit);
     kafka_producer.flush();
 
-    toll_msg = next(toll_consumer, None)
+    toll_msg = _next_where(toll_consumer, lambda event: event.get("vehicleId") == vehicle_id)
     assert toll_msg, "Toll event not received"
     te = toll_msg.value
     assert te['vehicleId'] == vehicle_id
     assert te['zoneId'] == 'Zone1'
 
-    payment_msg = next(payment_consumer, None)
+    payment_msg = _next_where(payment_consumer, lambda event: event.get("eventId") == te["eventId"])
     assert payment_msg, "Payment event not received"
     pe = payment_msg.value
     assert pe['eventId'] == te['eventId']

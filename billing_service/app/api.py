@@ -104,6 +104,32 @@ async def list_transactions(
 
 
 @router.get(
+    "/transactions/summary",
+    response_model=models.TransactionSummaryResponse,
+    summary="Billing totals by status",
+    dependencies=[Depends(verify_api_key)],
+)
+async def transaction_summary(db: Session = Depends(database.get_db)):
+    """Counts and amounts grouped by transaction status. Used by the operations console."""
+    rows = db.execute(
+        select(
+            models.BillingTransaction.status,
+            func.count(),
+            func.coalesce(func.sum(models.BillingTransaction.amount), 0),
+        ).group_by(models.BillingTransaction.status)
+    ).all()
+    by_status = [
+        models.StatusBreakdown(status=status, count=int(count), amount=round(float(amount), 2))
+        for status, count, amount in rows
+    ]
+    return models.TransactionSummaryResponse(
+        total=sum(item.count for item in by_status),
+        amount_total=round(sum(item.amount for item in by_status), 2),
+        by_status=by_status,
+    )
+
+
+@router.get(
     "/transactions/status/{toll_event_id}",
     response_model=models.TransactionStatusResponse,
     summary="Get Billing Transaction Status by Toll Event ID",

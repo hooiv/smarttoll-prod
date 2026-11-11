@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from kafka import TopicPartition
 from kafka.consumer.fetcher import ConsumerRecord
 from sqlalchemy.orm import sessionmaker
 from pydantic import ValidationError
@@ -12,16 +13,34 @@ log = logging.getLogger(__name__)
 # Global event to signal when consumer is ready
 consumer_ready = asyncio.Event()
 
+# In-process retry budget for transient failures. Restarts redeliver from the
+# committed offset; billing idempotency makes that safe.
+_attempt_counts: dict[tuple, int] = {}
+
+
+def _backoff_seconds(attempt: int) -> float:
+    return min(15.0, float(2 ** min(attempt, 4)))
+
+
 async def consume_loop(db_session_factory: sessionmaker):
     log.info("Consumer loop starting...")
     consumer_client = None
     try:
-        # Get initialized consumer
-        consumer_client = kafka_client.get_kafka_consumer() # This will retry
-        if not consumer_client:
-            log.error("Failed to get Kafka consumer after multiple retries. Exiting consume_loop.")
-            # DO NOT set ready_event here if consumer failed
-            return
+        attempt = 0
+        while consumer_client is None:
+            attempt += 1
+            try:
+                # One try per loop so this coroutine can sleep without holding a long sync retry.
+                consumer_client = kafka_client.get_kafka_consumer(retry_attempts=1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                delay = _backoff_seconds(attempt)
+                log.warning(
+                    "Kafka consumer not ready (attempt %s). Retrying in %.0fs.",
+                    attempt, delay,
+                )
+                await asyncio.sleep(delay)
 
         log.info("Kafka consumer is ready.")
         consumer_ready.set()
@@ -76,6 +95,7 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
 
                 # Commit Kafka offset ONLY if processing succeeded or was handled gracefully (e.g., duplicate)
                 if success:
+                    _attempt_counts.pop(_message_key(message), None)
                     try:
                         consumer.commit() # Commit offset for the partition this message came from
                         metrics.kafka_messages_processed_total.inc()
@@ -85,38 +105,73 @@ async def process_message(message: ConsumerRecord, db_session_factory: sessionma
                          # This is problematic - risk of reprocessing. Alerting needed.
                 else:
                      metrics.kafka_messages_error_total.inc()
-                     log.error(f"Processing failed for event {event_data.eventId} at offset {message.offset}. Offset not committed.")
-                     # Implement retry mechanism or dead-letter queue based on requirements
+                     await _retry_or_dead_letter(
+                         consumer, message, "ProcessingFailed",
+                         event_id=event_data.eventId,
+                     )
 
             except Exception:
-                 # Catch errors within the billing logic processing itself
-                 log.exception(f"Unhandled exception processing event {getattr(event_data, 'eventId', 'N/A')} at offset {message.offset}.")
+                 log.exception(
+                     "Unhandled exception processing event %s at offset %s.",
+                     getattr(event_data, 'eventId', 'N/A'), message.offset,
+                 )
                  metrics.kafka_messages_error_total.inc()
-                 # Decide if offset should be committed (to skip) or not (to retry)
-                 # Committing here to avoid poison pill messages blocking the partition
-                 try:
-                     consumer.commit()
-                     log.warning(f"Committed offset {message.offset} after unhandled processing exception to avoid blocking.")
-                 except Exception as commit_exc:
-                      log.error(f"Failed to commit Kafka offset {message.offset} after processing exception: {commit_exc}", exc_info=True)
+                 _dead_letter_and_commit(
+                     consumer, message, "UnhandledProcessingError",
+                     extra={"eventId": getattr(event_data, "eventId", None)},
+                 )
 
     except ValidationError as e:
-        log.warning(f"Invalid TollEvent format received at offset {message.offset}. Error: {e.errors()}. Message: {message.value}")
+        log.warning(
+            "Invalid TollEvent at offset %s. Error: %s. Message: %s",
+            message.offset, e.errors(), message.value,
+        )
         metrics.kafka_messages_error_total.inc()
-        # Commit offset to skip the malformed message (poison pill prevention)
-        try:
-            consumer.commit()
-            log.debug(f"Committed offset {message.offset} for invalid message.")
-        except Exception as commit_exc:
-             log.error(f"Failed to commit Kafka offset {message.offset} for invalid message: {commit_exc}", exc_info=True)
+        _dead_letter_and_commit(consumer, message, "ValidationError")
     except Exception:
-        # Catch errors like JSON decoding issues (if deserializer fails) or others
-        log.exception(f"Critical error handling message at offset {message.offset}.")
+        log.exception("Critical error handling message at offset %s.", message.offset)
         metrics.kafka_messages_error_total.inc()
-        # Commit the offset to prevent this message from permanently blocking the partition.
-        # The error has already been logged; retrying an undeserializable message will never succeed.
-        try:
-            consumer.commit()
-            log.warning(f"Committed offset {message.offset} after critical error to avoid partition blocking.")
-        except Exception as commit_exc:
-            log.error(f"Failed to commit Kafka offset {message.offset} after critical error: {commit_exc}", exc_info=True)
+        _dead_letter_and_commit(consumer, message, "CriticalError")
+
+
+def _message_key(message: ConsumerRecord) -> tuple:
+    return (message.topic, message.partition, message.offset)
+
+
+async def _retry_or_dead_letter(consumer, message: ConsumerRecord, reason: str, event_id: str) -> None:
+    """Retry a transient failure, then dead-letter it so one event cannot stall the partition."""
+    key = _message_key(message)
+    count = _attempt_counts.get(key, 0) + 1
+    _attempt_counts[key] = count
+    limit = settings.BILLING_MAX_PROCESS_ATTEMPTS
+    if count >= limit:
+        log.error(
+            "Event %s at offset %s failed %s times. Publishing to DLQ and committing.",
+            event_id, message.offset, count,
+        )
+        _dead_letter_and_commit(consumer, message, reason, extra={"eventId": event_id, "attempts": count})
+        _attempt_counts.pop(key, None)
+        return
+    delay = _backoff_seconds(count)
+    log.error(
+        "Processing failed for event %s at offset %s (attempt %s/%s). Seeking back for retry in %.0fs.",
+        event_id, message.offset, count, limit, delay,
+    )
+    try:
+        consumer.seek(TopicPartition(message.topic, message.partition), message.offset)
+    except Exception:
+        log.exception("Failed to seek back to offset %s; the message will be retried after a restart.", message.offset)
+    await asyncio.sleep(delay)
+
+
+def _dead_letter_and_commit(consumer, message: ConsumerRecord, reason: str, extra: dict | None = None) -> None:
+    try:
+        kafka_client.publish_dlq(reason, message.value, message.offset, extra=extra)
+    except Exception:
+        log.exception("Failed to publish dead-letter record for offset %s", message.offset)
+    try:
+        consumer.commit()
+        log.warning("Committed offset %s after %s so the partition can move on.", message.offset, reason)
+    except Exception as commit_exc:
+        log.error("Failed to commit Kafka offset %s after %s: %s", message.offset, reason, commit_exc, exc_info=True)
+    _attempt_counts.pop(_message_key(message), None)

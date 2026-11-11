@@ -65,6 +65,7 @@ class TollEvent(BaseModel):
     tollAmount: float
     currency: str = "USD"
     processedTimestamp: int
+    traceId: Optional[str] = None
 
 
 class PaymentResult(BaseModel):
@@ -101,3 +102,15 @@ class TransactionListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class StatusBreakdown(BaseModel):
+    status: str
+    count: int
+    amount: float
+
+
+class TransactionSummaryResponse(BaseModel):
+    total: int
+    amount_total: float
+    by_status: list[StatusBreakdown]

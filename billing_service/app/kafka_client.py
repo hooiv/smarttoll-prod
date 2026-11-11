@@ -3,7 +3,7 @@ import logging
 import json
 import time
 import threading
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from kafka import KafkaProducer, KafkaConsumer # Consumer also needed here
 from kafka.errors import KafkaError, NoBrokersAvailable
@@ -67,6 +67,29 @@ def get_kafka_producer(retry_attempts=5, retry_delay=5) -> Optional[KafkaProduce
                     log.critical("Kafka Producer initialization failed after multiple attempts.")
                     raise
     return None
+
+def publish_dlq(reason: str, message_value: Any, offset: int, extra: Optional[Dict[str, Any]] = None) -> bool:
+    """Publish a poison or exhausted message to the billing dead-letter topic."""
+    from app import metrics
+
+    if isinstance(message_value, (dict, list, str, int, float, type(None))):
+        payload_value = message_value
+    else:
+        payload_value = str(message_value)
+    body: Dict[str, Any] = {
+        "reason": reason,
+        "offset": offset,
+        "payload": payload_value,
+        "service": "billing_service",
+        "ts": int(time.time() * 1000),
+    }
+    if extra:
+        body["context"] = extra
+    ok = send_message(settings.BILLING_DLQ_TOPIC, body)
+    if ok:
+        metrics.dlq_messages_total.labels(reason=reason).inc()
+    return ok
+
 
 def send_message(topic: str, message: Dict[str, Any], key: Optional[bytes] = None) -> bool:
     producer = get_kafka_producer()
