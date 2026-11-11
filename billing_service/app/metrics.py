@@ -50,3 +50,9 @@ kafka_messages_error_total = Counter(
     'billing_kafka_messages_error_total',
     'Total number of Kafka messages that could not be processed',
 )
+
+dlq_messages_total = Counter(
+    'billing_dlq_messages_total',
+    'Toll events published to the billing dead-letter topic',
+    labelnames=['reason'],
+)

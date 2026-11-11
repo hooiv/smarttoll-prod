@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     TOLL_EVENT_TOPIC: str = "smarttoll.toll.events.v1"
     BILLING_CONSUMER_GROUP_ID: str = "billing_service_group_dev_1"
     PAYMENT_EVENT_TOPIC: str = "smarttoll.payment.events.v1"
+    BILLING_DLQ_TOPIC: str = "smarttoll.billing.dlq.v1"
+    # Transient processing failures are retried this many times, then dead-lettered.
+    BILLING_MAX_PROCESS_ATTEMPTS: int = 5
     KAFKA_CONSUMER_RETRY_DELAY_S: float = 5.0
 
     # Logging
@@ -54,14 +57,40 @@ class Settings(BaseSettings):
     # Default "*" (allow all) is safe behind an API key; restrict in production.
     CORS_ORIGINS: list[str] = ["*"]
 
-    # Payment Gateway (Mock settings)
-    MOCK_PAYMENT_FAIL_RATE: float = 0.1
+    # Payment gateway. "mock" needs no network. "stripe" is test-mode only.
+    PAYMENT_GATEWAY: str = "mock"
+    STRIPE_API_KEY: Optional[str] = None
+    # Both rates default to 0 so a local run is deterministic.
+    # Set MOCK_PAYMENT_FAIL_RATE=0.1 to demonstrate declines.
+    MOCK_PAYMENT_FAIL_RATE: float = 0.0
+    MOCK_PAYMENT_TIMEOUT_RATE: float = 0.0
 
     # API Security
     SERVICE_API_KEY: Optional[str] = None
 
     # Service metadata
     SERVICE_VERSION: str = "1.0.0"
+
+    @model_validator(mode='after')
+    def validate_gateway(self) -> 'Settings':
+        gateway = self.PAYMENT_GATEWAY.strip().lower()
+        self.PAYMENT_GATEWAY = gateway
+        if gateway not in {"mock", "stripe"}:
+            raise ValueError("PAYMENT_GATEWAY must be 'mock' or 'stripe'")
+        for name in ("MOCK_PAYMENT_FAIL_RATE", "MOCK_PAYMENT_TIMEOUT_RATE"):
+            value = getattr(self, name)
+            if value < 0.0 or value > 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if gateway == "stripe":
+            key = self.STRIPE_API_KEY or ""
+            if not key.startswith(("sk_test_", "rk_test_")):
+                raise ValueError(
+                    "PAYMENT_GATEWAY=stripe requires a Stripe test key "
+                    "(STRIPE_API_KEY starting with sk_test_ or rk_test_)"
+                )
+        if self.BILLING_MAX_PROCESS_ATTEMPTS < 1:
+            raise ValueError("BILLING_MAX_PROCESS_ATTEMPTS must be at least 1")
+        return self
 
 
 settings = Settings()
@@ -77,6 +106,8 @@ if not settings.SERVICE_API_KEY:
 logging.debug("Billing Service Settings Loaded:")
 loggable_settings = settings.model_dump()
 loggable_settings['POSTGRES_PASSWORD'] = '********'
+loggable_settings['STRIPE_API_KEY'] = '********' if settings.STRIPE_API_KEY else None
+loggable_settings['SERVICE_API_KEY'] = '********' if settings.SERVICE_API_KEY else None
 if loggable_settings.get('DATABASE_URL'):
     loggable_settings['DATABASE_URL'] = str(loggable_settings['DATABASE_URL']).replace(
         settings.POSTGRES_PASSWORD, '********'

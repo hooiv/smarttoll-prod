@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select # Use select() for modern SQLAlchemy
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from app import models, payment, kafka_client, metrics # Relative imports
+from app import models, payment, kafka_client, metrics, livefeed # Relative imports
 from app.config import settings
 from app.payment import PaymentGatewayError # Import custom exception
 
@@ -19,7 +19,10 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     4. Updates the transaction record status.
     5. Publishes the payment result.
     """
-    log.info(f"Received Toll Event for processing: EventID={event_data.eventId}, Vehicle={event_data.vehicleId}")
+    log.info(
+        "Received Toll Event for processing: EventID=%s, Vehicle=%s, traceId=%s",
+        event_data.eventId, event_data.vehicleId, getattr(event_data, "traceId", None),
+    )
 
     # --- 1. Idempotency Check ---
     # Check if this toll_event_id has already been processed successfully or is pending
@@ -149,9 +152,20 @@ async def process_toll_event_for_billing(event_data: models.TollEvent, db: Sessi
     else:
         log.error(f"Failed to publish PaymentResult for TxID={tx_id}, EventID={event_data.eventId}")
 
+    livefeed.publish("transaction", {
+        "id": tx_id,
+        "toll_event_id": event_data.eventId,
+        "vehicle_id": event_data.vehicleId,
+        "amount": float(new_tx.amount) if getattr(new_tx, "amount", None) is not None else event_data.tollAmount,
+        "currency": event_data.currency,
+        "status": final_status,
+        "payment_gateway_ref": gateway_ref,
+        "error_message": payment_error_msg,
+    })
+
     if db_update_failed:
         return False
 
-    # Return True even if payment failed — the event *was processed*.
+    # Return True even if payment failed. The event was processed.
     # Return False only for system errors that prevent recording the outcome.
     return True

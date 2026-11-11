@@ -1,205 +1,187 @@
-# SmartToll - Toll Processing System
+# SmartToll
 
-A modern, scalable microservices architecture for processing GPS data from vehicles, calculating toll charges, and handling billing.
+[![CI](https://github.com/hooiv/smarttoll-prod/actions/workflows/ci.yml/badge.svg)](https://github.com/hooiv/smarttoll-prod/actions/workflows/ci.yml)
 
-## System Overview
+GPS fixes on NH-48 become INR toll charges, from a simulated car to a Postgres row you can see on a map.
 
-SmartToll consists of three main components:
+SmartToll is a local toll pipeline for the Delhi to Neemrana stretch of NH-48. A simulator drives the highway and publishes positions to Kafka. A processor detects plaza crossings. A billing service records one idempotent charge per crossing. The operations console, Prometheus, and Grafana all come up with the same Compose file. No paid account is required. The default payment gateway never leaves the process.
 
-1. **OBU Simulator**: Generates simulated GPS data from vehicles and publishes it to Kafka.
-2. **Toll Processor**: Processes real-time GPS data, detects when vehicles enter/exit toll zones, and calculates toll charges.
-3. **Billing Service**: Handles toll event consumption, payment processing, and provides a REST API for transaction status.
+![Operations console: Delhi to Neemrana map, rupee totals, and the live ledger](docs/screenshots/console.webp)
 
-## Tech Stack
-
-- **Messaging**: Apache Kafka (with Zookeeper)
-- **Cache**: Redis 7
-- **Database**: PostgreSQL 15 with PostGIS extension
-- **API**: FastAPI + Uvicorn (Billing Service)
-- **Observability**: Prometheus metrics on every service
-- **Container Orchestration**: Docker Compose
-
-## Prerequisites
-
-- Docker & Docker Compose v2 (`docker compose` CLI)
-- Python 3.11+ (only needed for local non-Docker development)
-
-## Quick Start (Docker Compose)
+## Quick start
 
 ```bash
-# 1. Create .env from the template
 cp .env.example .env
-
-# 2. Build and start all services (single command — reliable from a cold start)
 docker compose up -d
-
-# 3. Verify all 7 services are healthy
-docker compose ps
 ```
 
-Services are available at:
+The first start builds images and waits until Kafka is healthy. `docker compose ps` should then show every service healthy, including the simulator.
 
-| Service | URL |
+| Surface | URL |
 |---|---|
-| Billing API (Swagger UI) | http://localhost:8001/docs |
-| Billing liveness | http://localhost:8001/api/v1/health/live |
-| Billing readiness | http://localhost:8001/api/v1/health/ready |
-| Billing Prometheus metrics | http://localhost:8001/metrics |
-| Toll Processor liveness | http://localhost:8080/health/live |
-| Toll Processor Prometheus metrics | http://localhost:8081/ |
+| Operations console | http://localhost:3000 |
+| Billing API, Swagger | http://localhost:8001/docs |
+| Billing API, ReDoc | http://localhost:8001/redoc |
+| Grafana (anonymous viewer) | http://localhost:3001/d/smarttoll/smarttoll |
+| Prometheus | http://localhost:9090 |
+| Processor liveness | http://localhost:8080/health/live |
+| Processor readiness | http://localhost:8080/health/ready |
+| Processor metrics | http://localhost:8081/ |
+| Processor zones (GeoJSON) | http://localhost:8080/zones |
+| Simulator readiness | http://localhost:8082/health/ready |
+| Postgres | localhost:5432 |
+| Redis | localhost:6379 |
+| Kafka (host clients) | localhost:9092 |
 
-## Environment Variables
+Inside the Compose network, Kafka is `kafka:29092`. The console talks only to port 3000. nginx proxies `/api`, `/processor`, and `/simulator`, and adds `X-API-KEY` on the server. Direct calls to port 8001 still send that header. The local default is `supersecretapikey123`.
 
-All configuration lives in the root `.env` file. See `.env.example` for the full list with documentation. Key variables:
+Grafana's local admin password is `admin` unless `GRAFANA_ADMIN_PASSWORD` is set. Do not expose that port as-is.
 
-```ini
-# Postgres
-POSTGRES_DB=smarttoll_dev
-POSTGRES_USER=smarttoll_user
-POSTGRES_PASSWORD=changeme_in_prod_123!
+![Header mark and browser tab icon](docs/screenshots/header.webp)
 
-# Billing API authentication (required)
-SERVICE_API_KEY=supersecretapikey123
+## Architecture
 
-# Optional tuning
-LOG_LEVEL=INFO
-MOCK_PAYMENT_FAIL_RATE=0.1   # 0.0 = always succeed, 1.0 = always fail
+```mermaid
+flowchart LR
+  SIM[OBU simulator<br/>HR26DK8481]
+  SIM -->|smarttoll.gps.raw.v1| K[Kafka]
+  K --> TP[Toll processor]
+  TP -->|ST_Contains| PG[(Postgres + PostGIS)]
+  TP -->|vehicle state, 6h TTL| R[(Redis)]
+  TP -->|smarttoll.toll.events.v1| K
+  TP -->|smarttoll.processor.errors.v1| K
+  K --> BILL[Billing service]
+  BILL -->|charge| GW[mock or Stripe test]
+  BILL -->|billing_transactions| PG
+  BILL -->|smarttoll.billing.dlq.v1| K
+  BILL -->|smarttoll.payment.events.v1| K
+  NGX[nginx :3000]
+  UI[Operations console]
+  UI --> NGX
+  NGX -->|/api + X-API-KEY| BILL
+  NGX -->|/processor| TP
+  NGX -->|/simulator| SIM
+  BILL -->|SSE /api/v1/stream| NGX
+  TP -->|SSE /stream| NGX
+  PROM[Prometheus] --> BILL
+  PROM --> TP
+  GRAF[Grafana] --> PROM
 ```
 
-## Running Locally (Without Docker)
+One fix is handled like this:
 
-### Linux / macOS
-```bash
-cp .env.example .env
-docker compose up -d zookeeper kafka redis postgres   # infrastructure only
-./run_local.sh                                        # Python services in background
-```
+1. The simulator publishes a point on `smarttoll.gps.raw.v1`, keyed by vehicle id, with a `traceId`. The path is a driving trace, not a straight line.
+2. The processor rejects timestamps older than 10 minutes or more than 60 seconds ahead.
+3. PostGIS `ST_Contains` tests the point against the seeded plaza polygons.
+4. Redis keeps the in-zone state for 6 hours. Distance is the sum of Haversine segments, and is stored even when the fee is flat.
+5. On exit, the processor publishes one toll event. `eventId` is the idempotency key downstream.
+6. Billing inserts a `PENDING` row, calls the gateway, then stores `SUCCESS` or `FAILED`. A second delivery of the same `toll_event_id` does not charge again.
+7. A malformed event, or a transient failure past `BILLING_MAX_PROCESS_ATTEMPTS` (default 5), is copied to `smarttoll.billing.dlq.v1` and the offset is committed. Processor failures go to `smarttoll.processor.errors.v1`.
+8. Billing pushes `event: transaction` on `GET /api/v1/stream`. The processor pushes `event: map` (zones and recent trails) on `GET /stream` every 2 seconds. The console updates without a manual refresh.
 
-### Windows (PowerShell)
-```powershell
-Copy-Item .env.example .env
-docker compose up -d zookeeper kafka redis postgres
-.\run_local.ps1
-```
+## Corridor
 
-## Running Unit Tests
+The seeded drive is NH-48 from Mahipalpur in Delhi to just past Shahjahanpur, near Neemrana in Rajasthan, about 113 km. Only booths that still collect a car toll are zones. Sirhaul stopped in 2014. The IGI plaza at Mahipalpur stopped charging cars on 9 November 2025. Kukdola, the planned move of Kherki Daula, is not open.
 
-```bash
-# Using the Makefile (recommended)
-make test
-
-# Or directly from each service directory
-cd billing_service && pytest tests/ -v
-cd toll_processor  && pytest tests/ -v
-```
-
-## Running Integration Tests
-
-```bash
-# Using the Makefile — starts the stack, waits, runs tests, then tears down
-make test-integration
-
-# Or manually
-docker compose -f tests/integration/docker-compose.integration.yml up -d
-sleep 30  # wait for services to be healthy
-pytest tests/integration/ -v
-docker compose -f tests/integration/docker-compose.integration.yml down
-```
-
-## Deploying to Production
-
-1. Push images to your registry:
-   ```bash
-   docker tag smarttoll-prod-billing_service  my-registry/billing_service:1.0.0
-   docker tag smarttoll-prod-toll_processor   my-registry/toll_processor:1.0.0
-   docker push my-registry/billing_service:1.0.0
-   docker push my-registry/toll_processor:1.0.0
-   ```
-2. Provision external Kafka, Redis, and PostgreSQL (PostGIS) instances.
-3. Deploy with your orchestrator (Kubernetes, ECS, Fly.io, …):
-   - **Liveness** probe: `GET /api/v1/health/live` (billing) or `GET /health/live` (processor)
-   - **Readiness** probe: `GET /api/v1/health/ready` (billing) or `GET /health/ready` (processor)
-   - **Prometheus** scrape: `/metrics` (billing, port 8000) or port `8081` (processor)
-4. Set all required env vars as secrets in your orchestrator.
-
----
-
-## Architecture Diagram
-
-```
-+----------------+      +-------------------+      +-------------------+
-|  OBU Simulator | ---> |   Kafka Broker    | ---> |   Toll Processor  |
-+----------------+      |  (GPS raw topic)  |      |  (geofence logic) |
-                         +-------------------+      +--------+----------+
-                                |                            |
-                         (toll events topic)        Redis (vehicle state)
-                                |                  Postgres+PostGIS (zones)
-                         +------v------------+
-                         |  Billing Service  |
-                         |  (FastAPI + async |
-                         |   Kafka consumer) |
-                         +-------------------+
-                                |
-                         Postgres (billing_transactions)
-```
-
----
-
-## API Reference
-
-The Billing Service exposes a REST API documented with OpenAPI/Swagger:
-
-- **Swagger UI**: http://localhost:8001/docs
-- **ReDoc**: http://localhost:8001/redoc
-
-All `*/transactions*` endpoints require the `X-API-KEY` request header.
-Every response includes an `X-Request-ID` header for distributed tracing.
-
-| Method | Path | Auth | Description |
+| Zone | Place | Car, single journey | Source |
 |---|---|---|---|
-| GET | `/api/v1/health/live` | — | Liveness probe |
-| GET | `/api/v1/health/ready` | — | Readiness probe (checks DB + Kafka consumer) |
-| GET | `/api/v1/version` | — | Service version |
-| GET | `/api/v1/transactions` | ✓ | List transactions (filter by `vehicle_id`, `status`; paginated) |
-| GET | `/api/v1/transactions/{id}` | ✓ | Get transaction by internal ID |
-| GET | `/api/v1/transactions/status/{toll_event_id}` | ✓ | Get transaction by Toll Event ID |
-| GET | `/metrics` | — | Prometheus metrics |
+| `NH48-KHERKI` | Kherki Daula, 28.3956 N, 76.9818 E | ₹105 | Effective 19 July 2026, next revision 31 March 2027. [Goodreturns tariff](https://www.goodreturns.in/kherki-daula-toll-plaza-tp136.html). [NHAI TIS plaza 272](https://tis.nhai.gov.in/TollInformation?TollPlazaID=272) still shows the 1 April 2025 figure of ₹85. Hindustan Times, 31 August 2026, reported the Kukdola shift had started and the new booth was not open. |
+| `NH48-SHAHJAHANPUR` | Shahjahanpur, NH-48 km 115, 27.9999 N, 76.4306 E | ₹205 | Effective 20 July 2026, next revision 31 March 2027. [Goodreturns tariff](https://www.goodreturns.in/shahjahanpur-toll-plaza-tp579.html). [NHAI TIS plaza 213](https://tis.nhai.gov.in/TollInformation?TollPlazaID=213) still shows the 1 April 2025 figure of ₹200. |
 
-Transaction responses include: `id`, `toll_event_id`, `vehicle_id`, `amount`, `currency`, `status`, `retry_count`, `transaction_time`, `last_updated`, `payment_gateway_ref`, `error_message`.
+A crossing bills that flat fee. The polygon is the capture area around the booth, not a per-kilometre cordon. The simulator vehicle is `HR26DK8481`. The console shows amounts in INR and times in Asia/Kolkata.
 
----
+## Configuration
 
-## Contributing
+Copy `.env.example` to `.env`. Those values are local defaults, not production secrets. Compose rewrites hostnames (`kafka`, `postgres`, `redis`) for containers.
 
-1. Fork the repository and create a feature branch.
-2. Install dev dependencies: `pip install -r requirements-dev.txt`
-3. Run unit tests: `cd billing_service && pytest tests/ -v`
-4. Ensure code follows PEP 8 with type hints and docstrings.
-5. Open a pull request with a clear description.
+| Variable | Default | Role |
+|---|---|---|
+| `POSTGRES_DB` / `USER` / `PASSWORD` | `smarttoll_dev` / `smarttoll_user` / `changeme_in_prod_123!` | Database |
+| `KAFKA_BROKER` | `kafka:29092` inside Compose | Broker for services |
+| `GPS_TOPIC` | `smarttoll.gps.raw.v1` | Raw fixes |
+| `TOLL_EVENT_TOPIC` | `smarttoll.toll.events.v1` | Plaza crossings |
+| `PAYMENT_EVENT_TOPIC` | `smarttoll.payment.events.v1` | Charge results |
+| `BILLING_DLQ_TOPIC` | `smarttoll.billing.dlq.v1` | Billing dead letter |
+| `SERVICE_API_KEY` | `supersecretapikey123` | `X-API-KEY` on transaction routes and the billing stream |
+| `PAYMENT_GATEWAY` | `mock` | `mock` or `stripe` |
+| `STRIPE_API_KEY` | unset | Required for `stripe`. Must start with `sk_test_` or `rk_test_` |
+| `MOCK_PAYMENT_FAIL_RATE` | `0.0` | Share of mock charges that decline |
+| `MOCK_PAYMENT_TIMEOUT_RATE` | `0.0` | Share of mock charges that time out |
+| `BILLING_MAX_PROCESS_ATTEMPTS` | `5` | Then the message is dead-lettered |
+| `TOLL_CURRENCY` | `INR` | Currency on new toll events |
+| `SIM_VEHICLE_ID` | `HR26DK8481` | Simulator registration mark |
+| `SIM_SEND_INTERVAL_SECONDS` | `5` | Gap between fixes |
+| `SIM_NUM_STEPS` | `160` | Samples along the trace before it loops |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | Local Grafana admin |
+| `LOG_LEVEL` | `INFO` | Service logs |
 
----
+`PAYMENT_GATEWAY=stripe` creates a test-mode PaymentIntent with `pm_card_visa` and sends `toll_event_id` as the Idempotency-Key. Live keys are rejected at startup. Stripe's INR minimum is ₹50. A smaller toll is stored in metadata and the charge is raised to that minimum.
 
-## Service Details
+## API
 
-### OBU Simulator
+Transaction routes and `GET /api/v1/stream` require `X-API-KEY`. Comparison is constant time. Every HTTP response carries `X-Request-ID`, and billing logs include it.
 
-Simulates a vehicle's OBU sending GPS data along a predefined NYC route (lat 40.700→40.720, lon -74.010→-74.000) that passes through **Zone1** (seeded automatically by the Toll Processor on startup).
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/health/live` | no | Process is up |
+| GET | `/api/v1/health/ready` | no | Database and Kafka consumer |
+| GET | `/api/v1/version` | no | Service version |
+| GET | `/api/v1/stream` | yes | SSE. `hello`, then `transaction` when a charge is recorded, plus a keepalive |
+| GET | `/api/v1/transactions` | yes | Page of rows. Filters: `vehicle_id`, `status`. `page`, `page_size` (max 100) |
+| GET | `/api/v1/transactions/summary` | yes | Counts and amounts by status |
+| GET | `/api/v1/transactions/status/{toll_event_id}` | yes | One row by event id |
+| GET | `/api/v1/transactions/{id}` | yes | One row by internal id |
+| GET | `/metrics` | no | Prometheus |
 
-### Toll Processor
+The processor, on port 8080, also serves `GET /tracks`, `GET /zones`, and `GET /stream` (SSE `map` events). Those are not behind the API key. The console reaches them through nginx.
 
-- Consumes GPS data from Kafka
-- Maintains vehicle state in Redis (6-hour TTL)
-- Detects zone entry/exit using PostGIS `ST_Contains` (spatial GiST index on `toll_zones.geom`)
-- Validates GPS timestamps (rejects messages older than 10 min or more than 60 s in the future)
-- Calculates toll charges using the Haversine formula
-- Publishes toll events to Kafka
-- Exposes HTTP health/readiness and Prometheus metrics
+## Reliability
 
-### Billing Service
+Services bind their HTTP ports before Kafka is ready and retry with exponential backoff, capped at 15 seconds. Liveness is "the process is up". Readiness stays 503 until the consumer has polled and the dependency checks pass. Compose restarts with `unless-stopped`.
 
-- Consumes toll events from Kafka (`auto_offset_reset=earliest` — no events lost during restarts)
-- Creates billing transactions with idempotency (deduplication by `toll_event_id`)
-- Processes payments via configurable gateway (mock by default)
-- Tracks `retry_count` per transaction; `last_updated` auto-managed by a DB trigger
-- REST API with constant-time API key auth, CORS middleware, and `X-Request-ID` tracing header
-- Prometheus metrics: transaction counters, payment duration histogram, Kafka consumer throughput
+Offsets are committed by hand. `auto_offset_reset=earliest` replays anything not yet committed. Billing's unique `toll_event_id` makes that replay safe. A poison message, or a failure after five attempts, goes to the billing dead-letter topic and the offset moves on. Retry counts live in memory. A crash redelivers uncommitted offsets, and the database unique key stops a second charge.
+
+## Observability
+
+Billing exposes `/metrics` on port 8001. The processor exposes Prometheus on port 8081. Grafana is provisioned with the SmartToll dashboard, so `docker compose up -d` is enough. Anonymous viewers can open it. Logs are JSON. Billing attaches `request_id`. Toll events carry `traceId`.
+
+![Grafana dashboard](docs/screenshots/grafana.webp)
+
+## Tests and CI
+
+```bash
+make test                 # unit tests, no Docker
+make lint
+make test-integration     # Compose on ports 9093, 6380, 5433, then pytest
+python scripts/load_trips.py --vehicles 20   # optional, main stack already up
+```
+
+GitHub Actions runs three jobs on every push and pull request: lint plus unit tests, the integration flow (Kafka, PostGIS, Redis, billing API, SSE hello, and `/zones`), and `docker compose build`.
+
+## Security
+
+The API key is injected by nginx. It is not in the JavaScript bundle. Authenticated routes use constant-time comparison. Application images run as a non-root user. The Kafka client is pinned to `kafka-python-ng==2.2.3`. Stripe test mode refuses live secret keys. The local Grafana password and the sample API key are demo defaults. Change them before any shared network.
+
+Anyone who can open port 3000 can read the ledger. That is acceptable for a local demo and the wrong shape for a public deployment.
+
+## Design decisions
+
+**Kafka is the contract.** The processor and billing service do not call each other. A restart replays the log.
+
+**Plaza fees are flat.** Distance is still recorded. The rupee amount is the published single-journey car rate, because that is how these booths charge.
+
+**The console is a backend for the browser.** It does not hold the API key. Zones, trails, health, and the ledger all come from the services. There is no plaza polygon in the frontend source.
+
+**Migrations own the billing table.** Alembic runs before Uvicorn (`0001` table, `0002` `last_updated` trigger). `create_all` on startup only covers a database that has not been migrated.
+
+**One broker is enough to show the design.** Confluent 7.3 with ZooKeeper is the single-node broker this Compose file is written for.
+
+## Out of scope
+
+- KRaft, a multi-broker cluster, and Kubernetes manifests. The health and metrics endpoints are what an orchestrator would probe.
+- A transactional outbox. A crash after the toll is computed and before Kafka accepts it can drop that exit. Idempotency covers replay, not that gap.
+- A live tariff feed. Rates are the July 2026 published car fees cited above, not a daily scrape of NHAI.
+- Kukdola. It is not an operating plaza yet.
+- FASTag, ANPR, and barrier hardware.
+- A hours-long soak in CI. `scripts/load_trips.py` is the optional load check.
+- A wholesale code reformat. `.flake8` ignores the existing whitespace style so CI can still fail on new classes of defect.

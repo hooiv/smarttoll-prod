@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     # Processing Configuration
     DISTANCE_CALC_METHOD: str = "haversine"
+    # Plaza fees are flat INR amounts. Distance-based zones still use this currency.
+    TOLL_CURRENCY: str = "INR"
 
 
 # Create a single instance of the settings to be imported by other modules

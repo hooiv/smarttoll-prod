@@ -1,11 +1,14 @@
+import asyncio
+import json
 import logging
 from enum import Enum
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, text
 
-from app import database, models, consumer
+from app import database, models, consumer, livefeed
 from app.security import verify_api_key
 
 log = logging.getLogger(__name__)
@@ -59,6 +62,31 @@ async def version():
     return {"service": "billing_service", "version": _settings.SERVICE_VERSION}
 
 
+@router.get("/stream", summary="Live transaction events", dependencies=[Depends(verify_api_key)])
+async def transaction_stream():
+    """Server-Sent Events. A `transaction` event is sent when a charge is recorded."""
+
+    async def events():
+        queue = livefeed.subscribe()
+        try:
+            yield "event: hello\ndata: {}\n\n"
+            while True:
+                try:
+                    name, payload = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+        finally:
+            livefeed.unsubscribe(queue)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Transaction endpoints (API key required)
 # ---------------------------------------------------------------------------
@@ -100,6 +128,32 @@ async def list_transactions(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+@router.get(
+    "/transactions/summary",
+    response_model=models.TransactionSummaryResponse,
+    summary="Billing totals by status",
+    dependencies=[Depends(verify_api_key)],
+)
+async def transaction_summary(db: Session = Depends(database.get_db)):
+    """Counts and amounts grouped by transaction status. Used by the operations console."""
+    rows = db.execute(
+        select(
+            models.BillingTransaction.status,
+            func.count(),
+            func.coalesce(func.sum(models.BillingTransaction.amount), 0),
+        ).group_by(models.BillingTransaction.status)
+    ).all()
+    by_status = [
+        models.StatusBreakdown(status=status, count=int(count), amount=round(float(amount), 2))
+        for status, count, amount in rows
+    ]
+    return models.TransactionSummaryResponse(
+        total=sum(item.count for item in by_status),
+        amount_total=round(sum(item.amount for item in by_status), 2),
+        by_status=by_status,
     )
 
 

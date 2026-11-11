@@ -105,9 +105,4 @@ migrate:
 # ---- Linting ----
 
 lint:
-	@echo "=== Linting billing_service ==="
-	flake8 billing_service/app --max-line-length=120 --extend-ignore=E501,W503 || true
-	@echo "=== Linting toll_processor ==="
-	flake8 toll_processor/app --max-line-length=120 --extend-ignore=E501,W503 || true
-	@echo "=== Linting obu_simulator ==="
-	flake8 obu_simulator --max-line-length=120 --extend-ignore=E501,W503 || true
+	flake8 billing_service/app toll_processor/app obu_simulator scripts

@@ -1,10 +1,12 @@
 import logging
 import threading
 import json
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
 from prometheus_client import start_http_server
-from app import kafka_client, database, state
+from app import kafka_client, database, state, tracks
 
 log = logging.getLogger(__name__)
 HEALTH_PORT = 8080
@@ -15,6 +17,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == '/health/live':
             self._send(200, {'status': 'live'})
+        elif path == '/stream':
+            self._stream_map()
+            return
+        elif path == '/tracks':
+            self._send(200, {'vehicles': tracks.snapshot()})
+        elif path == '/zones':
+            self._send(200, {'zones': _load_zones()})
         elif path == '/health/ready':
             errors = []
             # Kafka
@@ -43,12 +52,69 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         else:
             self._send(404, {'status':'not found'})
 
+    def _stream_map(self):
+        """Push the current trails and toll zones every two seconds."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+        try:
+            self.wfile.write(b'event: hello\ndata: {}\n\n')
+            self.wfile.flush()
+            while True:
+                payload = json.dumps({
+                    'vehicles': tracks.snapshot(),
+                    'zones': _load_zones(),
+                }).encode()
+                self.wfile.write(b'event: map\ndata: ' + payload + b'\n\n')
+                self.wfile.flush()
+                time.sleep(2)
+        except Exception:
+            return
+
     def _send(self, code, data):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
     def log_message(self, fmt, *args): log.debug(fmt % args)
+
+def _load_zones():
+    """Return toll zones as GeoJSON polygons for the operations map."""
+    try:
+        with database.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT zone_id, zone_name, rate_per_km, ST_AsGeoJSON(geom) AS geojson
+                    FROM toll_zones
+                    ORDER BY zone_id
+                    """
+                )
+                rows = cur.fetchall()
+    except Exception:
+        log.exception("Failed to read toll zones for the map")
+        return []
+    zones = []
+    for row in rows:
+        geojson = row["geojson"]
+        if isinstance(geojson, str):
+            geojson = json.loads(geojson)
+        zones.append({
+            "zoneId": row["zone_id"],
+            "name": row["zone_name"],
+            "ratePerKm": float(row["rate_per_km"]),
+            "geojson": geojson,
+        })
+    return zones
+
+
+class ThreadingHealthServer(ThreadingMixIn, HTTPServer):
+    """Serve health checks while a map stream is held open."""
+    daemon_threads = True
+
 
 http_server = None
 server_thread = None
@@ -63,7 +129,7 @@ def start_health_server():
     def serve():
         global http_server
         try:
-            http_server = HTTPServer(('', HEALTH_PORT), HealthCheckHandler)
+            http_server = ThreadingHealthServer(('', HEALTH_PORT), HealthCheckHandler)
             log.info(f'Starting health server on port {HEALTH_PORT}')
             http_server.serve_forever()
         except Exception:

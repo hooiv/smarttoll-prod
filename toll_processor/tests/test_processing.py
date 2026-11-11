@@ -191,10 +191,30 @@ def test_process_gps_message_exit_from_zone(mock_dependencies):
     assert toll_event.exitTime == SAMPLE_GPS_OUTSIDE_ZONE.timestamp
     assert toll_event.distanceKm == pytest.approx(1.25 + 0.25)  # Accumulated + final segment
     assert toll_event.ratePerKm == 0.15
-    # Decimal ROUND_HALF_UP: 1.5 km * 0.15 $/km = 0.225 -> rounds to 0.23
+    # Decimal ROUND_HALF_UP: 1.5 km * 0.15 = 0.225 -> rounds to 0.23
     # (float gives 0.22 because 1.5*0.15 == 0.22499... due to representation error)
     assert toll_event.tollAmount == pytest.approx(0.23)
-    assert toll_event.currency == "USD"
+    assert toll_event.currency == "INR"
+
+
+def test_flat_plaza_fee_ignores_distance(mock_dependencies):
+    """A plaza zone bills the published INR fee, not distance times rate."""
+    entry_time = SAMPLE_GPS_INSIDE_ZONE.timestamp
+    prior_state = VehicleState(
+        in_zone=True, zone_id="NH48-KHERKI", rate_per_km=0, entry_time=entry_time,
+        distance_km=0.4, lat=28.3954, lon=76.9820,
+        last_update=entry_time, deviceId="OBU-DL01AB1234", flat_fee_inr=105,
+    )
+    mock_dependencies["get_state"].return_value = prior_state
+    mock_dependencies["get_zone"].return_value = None
+    mock_dependencies["distance"].return_value = 0.2
+    outside = SAMPLE_GPS_OUTSIDE_ZONE.model_copy(update={"latitude": 28.36, "longitude": 76.93})
+    success = processing.process_gps_message(outside.model_dump(), 104)
+    assert success is True
+    payload = mock_dependencies["send_message"].call_args[0][1]
+    assert payload["tollAmount"] == 105
+    assert payload["currency"] == "INR"
+    assert payload["zoneId"] == "NH48-KHERKI"
 
 def test_process_gps_message_move_between_zones(mock_dependencies):
     """Test moving directly from one zone to another."""

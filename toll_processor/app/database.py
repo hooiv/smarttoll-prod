@@ -103,7 +103,7 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
         A dictionary containing zone_id and rate_per_km if found, otherwise None.
     """
     query = """
-        SELECT zone_id, rate_per_km
+        SELECT zone_id, rate_per_km, flat_fee_inr
         FROM toll_zones -- Make sure this table exists and is populated
         WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) -- Longitude, Latitude order for ST_MakePoint
         LIMIT 1;
@@ -115,8 +115,9 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
                 cursor.execute(query, (longitude, latitude))
                 result = cursor.fetchone() # Returns a dict or None
                 if result:
-                    # Ensure rate is float
                     result['rate_per_km'] = float(result['rate_per_km'])
+                    if result.get('flat_fee_inr') is not None:
+                        result['flat_fee_inr'] = float(result['flat_fee_inr'])
                 log.debug(f"Geofence check for ({latitude}, {longitude}): {'Found zone ' + result['zone_id'] if result else 'No zone found'}")
                 return result
     except Psycopg2OpError as db_err:
@@ -158,27 +159,44 @@ def init_db_schema():
                     geom geometry(POLYGON,4326) NOT NULL
                 );
             """)
-            # Add spatial GiST index for fast ST_Contains geofence lookups
+            # Plaza crossings bill a flat INR amount. NULL means distance * rate_per_km.
+            cur.execute("ALTER TABLE toll_zones ADD COLUMN IF NOT EXISTS flat_fee_inr NUMERIC;")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_toll_zones_geom
                 ON toll_zones USING GIST(geom);
             """)
-            # Seed default zone that the OBU simulator route passes through
-            # Simulator drives from (40.700, -74.010) to (40.720, -74.000); zone covers the mid-section
+            # Remove sample zones that are not live booths: the NYC demo,
+            # the dismantled Sirhaul plaza, and the IGI plaza closed in 2025.
             cur.execute("""
-                INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, geom)
-                VALUES (
-                    'Zone1',
-                    'NYC Demo Zone',
-                    0.15,
-                    ST_SetSRID(
-                        ST_MakePolygon(
-                            ST_GeomFromText('LINESTRING(-74.008 40.705, -74.002 40.705, -74.002 40.715, -74.008 40.715, -74.008 40.705)')
-                        ),
-                        4326
-                    )
+                DELETE FROM toll_zones
+                WHERE zone_id IN ('Zone1', 'NH48-IGI', 'NH48-SIRHAUL');
+            """)
+            # Capture polygons sit on the simulator trace at the published plaza
+            # coordinates. Fees are car / jeep / van, single journey.
+            #   NH48-KHERKI        28.3956 N, 76.9818 E, ₹105 from 19 Jul 2026
+            #   NH48-SHAHJAHANPUR  27.9999 N, 76.4306 E, ₹205 from 20 Jul 2026
+            cur.execute("""
+                INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, flat_fee_inr, geom)
+                VALUES
+                (
+                    'NH48-KHERKI',
+                    'Kherki Daula toll plaza, NH-48 Gurugram',
+                    0,
+                    105,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((76.988538 28.398242, 76.979908 28.389350, 76.975555 28.392620, 76.984184 28.401512, 76.988538 28.398242))'), 4326)
+                ),
+                (
+                    'NH48-SHAHJAHANPUR',
+                    'Shahjahanpur toll plaza, NH-48 near Neemrana',
+                    0,
+                    205,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((76.437720 28.000711, 76.426326 27.994755, 76.423420 27.999089, 76.434815 28.005044, 76.437720 28.000711))'), 4326)
                 )
-                ON CONFLICT (zone_id) DO NOTHING;
+                ON CONFLICT (zone_id) DO UPDATE
+                SET zone_name = EXCLUDED.zone_name,
+                    rate_per_km = EXCLUDED.rate_per_km,
+                    flat_fee_inr = EXCLUDED.flat_fee_inr,
+                    geom = EXCLUDED.geom;
             """)
         # Commit DDL + seed data so they persist
         conn.commit()

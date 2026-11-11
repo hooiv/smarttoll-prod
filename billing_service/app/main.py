@@ -16,6 +16,7 @@ from app.logging_config import setup_logging  # noqa F401
 setup_logging()
 
 from app.api import router as api_router
+from app.logging_config import request_id_var
 from app import consumer, kafka_client, database, models  # noqa F401
 
 log = logging.getLogger(__name__)
@@ -29,7 +30,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = request_id
-        response = await call_next(request)
+        token = request_id_var.set(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
         return response
 
@@ -40,23 +45,31 @@ async def lifespan(application: FastAPI):
     global consumer_task
     log.info("Billing Service starting up...")
 
-    log.info("Creating database tables...")
+    log.info("Creating database tables if migrations have not already...")
     models.Base.metadata.create_all(bind=database.engine)
 
-    kafka_client.get_kafka_producer()
+    # Do not block the HTTP server on Kafka. Liveness comes up immediately;
+    # readiness stays 503 until the consumer connects. The consumer retries
+    # with backoff for as long as the process is alive.
+    try:
+        kafka_client.get_kafka_producer(retry_attempts=1)
+    except Exception:
+        log.warning("Kafka producer is not ready yet. Sends will retry on use.")
 
     log.info("Starting Kafka consumer task...")
     consumer_task = asyncio.create_task(consumer.consume_loop(database.SessionLocal))
 
-    try:
-        await asyncio.wait_for(consumer.consumer_ready.wait(), timeout=30.0)
-        log.info("Consumer task reported ready.")
-    except asyncio.TimeoutError:
-        log.warning("Consumer task did not report ready within 30 s timeout.")
-    except Exception as e:
-        log.exception(f"Unexpected error waiting for consumer_ready: {e}")
+    async def _log_when_ready() -> None:
+        try:
+            await asyncio.wait_for(consumer.consumer_ready.wait(), timeout=120.0)
+            log.info("Consumer task reported ready.")
+        except asyncio.TimeoutError:
+            log.warning("Consumer not ready after 120s; the background loop is still retrying.")
+        except Exception as e:
+            log.exception(f"Unexpected error waiting for consumer_ready: {e}")
 
-    log.info("Startup complete. Service ready to process requests and events.")
+    asyncio.create_task(_log_when_ready())
+    log.info("HTTP server starting. Readiness follows the Kafka consumer.")
 
     yield  # Application runs here
 
