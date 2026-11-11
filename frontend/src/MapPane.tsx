@@ -10,17 +10,20 @@ type Props = {
   selectedId: string | null
 }
 
-const FALLBACK_RING: LatLngExpression[] = [
-  [28.397279, 76.986716],
-  [28.391054, 76.980836],
-  [28.393583, 76.977376],
-  [28.399808, 76.983256],
-]
-
 function ringFromZone(zone: Zone): LatLngExpression[] {
   const ring = zone.geojson?.coordinates?.[0] ?? []
-  const converted = ring.map(([lon, lat]) => [lat, lon] as LatLngExpression)
-  return converted.length > 0 ? converted : FALLBACK_RING
+  return ring.map(([lon, lat]) => [lat, lon] as LatLngExpression)
+}
+
+function FitZones({ zones }: { zones: Zone[] }) {
+  const map = useMap()
+  const signature = zones.map((zone) => zone.zoneId).join('|')
+  useEffect(() => {
+    const points = zones.flatMap(ringFromZone) as [number, number][]
+    if (points.length === 0) return
+    map.fitBounds(points, { padding: [28, 28], maxZoom: 11 })
+  }, [map, signature])
+  return null
 }
 
 function FitSelected({ vehicleId, positions }: { vehicleId: string | null; positions: LatLngExpression[] }) {
@@ -36,16 +39,15 @@ function FitSelected({ vehicleId, positions }: { vehicleId: string | null; posit
 }
 
 export function MapPane({ zones, tracks, selectedId }: Props) {
-  const shapes = zones.length > 0 ? zones.map(ringFromZone) : [FALLBACK_RING]
   const selected = tracks.find((track) => track.vehicleId === selectedId)
   const focus: LatLngExpression[] = selected
     ? selected.points.map((point) => [point.lat, point.lon])
-    : shapes[0]
+    : []
 
   return (
     <MapContainer
-      center={[28.47, 77.04]}
-      zoom={11}
+      center={[28.4, 77.0]}
+      zoom={8}
       scrollWheelZoom={false}
       style={{ height: '100%', width: '100%' }}
     >
@@ -53,13 +55,17 @@ export function MapPane({ zones, tracks, selectedId }: Props) {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {shapes.map((ring, index) => (
-        <Polygon
-          key={zones[index]?.zoneId ?? 'zone1'}
-          positions={ring}
-          pathOptions={{ color: '#0c6b52', weight: 2, fillColor: '#0c6b52', fillOpacity: 0.15 }}
-        />
-      ))}
+      {zones.map((zone) => {
+        const ring = ringFromZone(zone)
+        if (ring.length === 0) return null
+        return (
+          <Polygon
+            key={zone.zoneId}
+            positions={ring}
+            pathOptions={{ color: '#0c6b52', weight: 2, fillColor: '#0c6b52', fillOpacity: 0.15 }}
+          />
+        )
+      })}
       {tracks.map((track) => {
         const positions = track.points.map((point) => [point.lat, point.lon] as LatLngExpression)
         const active = track.vehicleId === selectedId
@@ -84,6 +90,7 @@ export function MapPane({ zones, tracks, selectedId }: Props) {
           />
         )
       })}
+      <FitZones zones={zones} />
       <FitSelected vehicleId={selectedId} positions={focus} />
     </MapContainer>
   )

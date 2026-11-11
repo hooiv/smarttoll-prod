@@ -46,7 +46,7 @@ One GPS fix is handled like this:
 
 1. The simulator publishes a point on `smarttoll.gps.raw.v1`, keyed by vehicle id, with a `traceId`.
 2. The processor drops points older than 10 minutes or more than 60 seconds in the future.
-3. PostGIS `ST_Contains` answers whether the point is inside a toll zone. Startup seeds three NH-48 capture polygons. Two use published car rates; one is an explicit assumption (see below).
+3. PostGIS `ST_Contains` answers whether the point is inside a toll zone. Startup seeds the two NH-48 plazas that still collect a car toll on this drive (see below).
 4. Redis holds the in-zone state for 6 hours. Distance is the sum of Haversine segments.
 5. On exit, the processor publishes one toll event. The event id is the idempotency key for everything downstream.
 6. Billing inserts a `PENDING` row, calls the gateway, then stores `SUCCESS` or `FAILED`. A second delivery of the same event id does not charge again.
@@ -115,15 +115,16 @@ Transaction routes require `X-API-KEY`. Every response carries `X-Request-ID`, a
 - **No Kubernetes manifests.** The probes and metrics endpoints are the contract an orchestrator needs. Compose is the thing a reviewer can run.
 - **Haversine, not a road network.** Distance is still recorded, but the Delhi plazas bill a flat INR fee on exit. That matches how NHAI charges a car at a booth, rather than a per-kilometre meter inside the polygon. The polygon is only the capture area around the plaza.
 
-**Where the corridor and the rates come from.** The simulator follows a thinned driving trace of NH-48 from Mahipalpur (Delhi) to Manesar (Haryana), so the fixes sit on the expressway rather than on a straight line. The three zones are:
+**Where the corridor and the rates come from.** The simulator follows a driving trace of NH-48 from Mahipalpur (Delhi) to just past the Shahjahanpur plaza near Neemrana (Rajasthan), about 113 km, so the fixes sit on the highway rather than on a straight line. Only booths that still collect a car toll are seeded:
 
-| Zone | Place | Car fee | Basis |
+| Zone | Place | Car fee | Source |
 |---|---|---|---|
-| `NH48-IGI` | IGI Airport plaza, Mahipalpur, 28.5439° N, 77.1154° E | ₹20 | NHAI toll information system extract (car, single journey). This is an older published figure, not a 2026 gazette. |
-| `NH48-SIRHAUL` | Delhi–Gurugram border near Sirhaul | ₹45 | Assumption. The old Sirhaul plaza is not a live booth. The fee is a round demo segment charge so a single drive produces a second crossing. |
-| `NH48-KHERKI` | Kherki Daula plaza, 28.3956° N, 76.9818° E | ₹85 | NHAI car single journey from 3 June 2024 ([Hindustan Times](https://www.hindustantimes.com/cities/others/new-toll-fees-for-delhi-gurgaon-e-way-sohna-elevated-road-in-place-from-monday-101717352560665.html)). Later WPI revisions are not applied. |
+| `NH48-KHERKI` | Kherki Daula, NH-48 km 42 / km 690.6, 28.3956° N, 76.9818° E | ₹105 | Fee effective 19 July 2026, due for revision 31 March 2027. [Goodreturns tariff table](https://www.goodreturns.in/kherki-daula-toll-plaza-tp136.html), which matches the NHAI TIS layout. NHAI's own page ([TollPlazaID 272](https://tis.nhai.gov.in/TollInformation?TollPlazaID=272)) still shows the 1 April 2025 figure of ₹85. Hindustan Times reported on 31 August 2026 that the shift to Kukdola had started but the new booth was not open, so Kherki Daula is still the collection point. |
+| `NH48-SHAHJAHANPUR` | Shahjahanpur, NH-48 km 115, Gurgaon–Kotputli–Jaipur, 27.9999° N, 76.4306° E | ₹205 | Fee effective 20 July 2026, due for revision 31 March 2027. [Goodreturns tariff table](https://www.goodreturns.in/shahjahanpur-toll-plaza-tp579.html). NHAI TIS ([TollPlazaID 213](https://tis.nhai.gov.in/TollInformation?TollPlazaID=213)) shows the previous 1 April 2025 car rate of ₹200. |
 
-NH-48 was chosen over the DND Flyway because DND toll collection was stopped by the courts, and over a generic Delhi box because Kherki Daula is a real plaza on the Delhi–Gurugram expressway with a cited car rate. Vehicle ids use Indian registration marks (`HR26DK8481` for the simulator, `DL01AB1234` in the manual trip).
+Sirhaul is not seeded: tolling there stopped in 2014. The IGI Airport plaza at Mahipalpur is not seeded either: collection on cars there stopped on 9 November 2025 when the booth was closed. Kukdola, the planned replacement for Kherki Daula, is still a tender, not an open plaza. There is no third live car booth on this NH-48 drive between those two.
+
+Vehicle ids use Indian registration marks (`HR26DK8481` for the simulator, `DL01AB1234` in the manual trip).
 - **Retry counts for billing live in memory.** A restart redelivers uncommitted offsets, and the database unique key stops a double charge. The counter itself does not survive a crash, which is the point of the database check.
 - **The in-zone trip is not an outbox.** If the process dies after computing a toll and before Kafka accepts it, that exit can be lost. A transactional outbox is the next step if the charge must be exactly-once rather than at-least-once-with-idempotency.
 - **Formatter debt.** `.flake8` ignores the pre-existing whitespace style so CI can fail on new classes of defect. Reformatting the tree would bury behavior changes.

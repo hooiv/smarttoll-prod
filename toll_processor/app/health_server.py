@@ -1,6 +1,7 @@
 import logging
 import threading
 import json
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from prometheus_client import start_http_server
@@ -15,6 +16,9 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == '/health/live':
             self._send(200, {'status': 'live'})
+        elif path == '/stream':
+            self._stream_map()
+            return
         elif path == '/tracks':
             self._send(200, {'vehicles': tracks.snapshot()})
         elif path == '/zones':
@@ -46,6 +50,28 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self._send(200, {'status':'ready'})
         else:
             self._send(404, {'status':'not found'})
+
+    def _stream_map(self):
+        """Push the current trails and toll zones every two seconds."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+        try:
+            self.wfile.write(b'event: hello\ndata: {}\n\n')
+            self.wfile.flush()
+            while True:
+                payload = json.dumps({
+                    'vehicles': tracks.snapshot(),
+                    'zones': _load_zones(),
+                }).encode()
+                self.wfile.write(b'event: map\ndata: ' + payload + b'\n\n')
+                self.wfile.flush()
+                time.sleep(2)
+        except Exception:
+            return
 
     def _send(self, code, data):
         self.send_response(code)

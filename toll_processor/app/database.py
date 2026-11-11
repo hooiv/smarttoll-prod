@@ -165,36 +165,32 @@ def init_db_schema():
                 CREATE INDEX IF NOT EXISTS idx_toll_zones_geom
                 ON toll_zones USING GIST(geom);
             """)
-            # Drop the old NYC sample if a previous boot seeded it.
-            cur.execute("DELETE FROM toll_zones WHERE zone_id = 'Zone1';")
-            # Polygons are ~1.3 km along NH-48 and ~440 m across, centred on the
-            # simulator trace so a car following the highway actually crosses them.
-            #   NH48-IGI     Mahipalpur / IGI plaza, 28.5439 N, 77.1154 E
-            #   NH48-SIRHAUL Delhi–Gurugram border near Sirhaul
-            #   NH48-KHERKI  Kherki Daula plaza, 28.3956 N, 76.9818 E
+            # Remove sample zones that are not live booths: the NYC demo,
+            # the dismantled Sirhaul plaza, and the IGI plaza closed in 2025.
+            cur.execute("""
+                DELETE FROM toll_zones
+                WHERE zone_id IN ('Zone1', 'NH48-IGI', 'NH48-SIRHAUL');
+            """)
+            # Capture polygons sit on the simulator trace at the published plaza
+            # coordinates. Fees are car / jeep / van, single journey.
+            #   NH48-KHERKI        28.3956 N, 76.9818 E, ₹105 from 19 Jul 2026
+            #   NH48-SHAHJAHANPUR  27.9999 N, 76.4306 E, ₹205 from 20 Jul 2026
             cur.execute("""
                 INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, flat_fee_inr, geom)
                 VALUES
                 (
-                    'NH48-IGI',
-                    'IGI Airport plaza, NH-48 Mahipalpur',
-                    0,
-                    20,
-                    ST_SetSRID(ST_GeomFromText('POLYGON((77.122471 28.545479, 77.118577 28.538143, 77.114495 28.539815, 77.118389 28.547151, 77.122471 28.545479))'), 4326)
-                ),
-                (
-                    'NH48-SIRHAUL',
-                    'Sirhaul border segment, NH-48',
-                    0,
-                    45,
-                    ST_SetSRID(ST_GeomFromText('POLYGON((77.090740 28.503925, 77.094722 28.496626, 77.090662 28.494915, 77.086680 28.502214, 77.090740 28.503925))'), 4326)
-                ),
-                (
                     'NH48-KHERKI',
-                    'Kherki Daula toll plaza, NH-48',
+                    'Kherki Daula toll plaza, NH-48 Gurugram',
                     0,
-                    85,
-                    ST_SetSRID(ST_GeomFromText('POLYGON((76.986716 28.397279, 76.980836 28.391054, 76.977376 28.393583, 76.983256 28.399808, 76.986716 28.397279))'), 4326)
+                    105,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((76.988538 28.398242, 76.979908 28.389350, 76.975555 28.392620, 76.984184 28.401512, 76.988538 28.398242))'), 4326)
+                ),
+                (
+                    'NH48-SHAHJAHANPUR',
+                    'Shahjahanpur toll plaza, NH-48 near Neemrana',
+                    0,
+                    205,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((76.437720 28.000711, 76.426326 27.994755, 76.423420 27.999089, 76.434815 28.005044, 76.437720 28.000711))'), 4326)
                 )
                 ON CONFLICT (zone_id) DO UPDATE
                 SET zone_name = EXCLUDED.zone_name,

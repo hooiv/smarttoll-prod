@@ -99,6 +99,8 @@ services:
       context: ../../toll_processor
       dockerfile: Dockerfile
     container_name: test_toll_processor
+    ports:
+      - "18080:8080"
     environment:
       KAFKA_BROKER: kafka:9092
       POSTGRES_HOST: postgres
@@ -123,6 +125,8 @@ services:
       context: ../../billing_service
       dockerfile: Dockerfile
     container_name: test_billing_service
+    ports:
+      - "18001:8000"
     environment:
       KAFKA_BROKER: kafka:9092
       POSTGRES_HOST: postgres

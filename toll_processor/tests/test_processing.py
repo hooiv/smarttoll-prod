@@ -203,7 +203,7 @@ def test_flat_plaza_fee_ignores_distance(mock_dependencies):
     prior_state = VehicleState(
         in_zone=True, zone_id="NH48-KHERKI", rate_per_km=0, entry_time=entry_time,
         distance_km=0.4, lat=28.3954, lon=76.9820,
-        last_update=entry_time, deviceId="OBU-DL01AB1234", flat_fee_inr=85,
+        last_update=entry_time, deviceId="OBU-DL01AB1234", flat_fee_inr=105,
     )
     mock_dependencies["get_state"].return_value = prior_state
     mock_dependencies["get_zone"].return_value = None
@@ -212,7 +212,7 @@ def test_flat_plaza_fee_ignores_distance(mock_dependencies):
     success = processing.process_gps_message(outside.model_dump(), 104)
     assert success is True
     payload = mock_dependencies["send_message"].call_args[0][1]
-    assert payload["tollAmount"] == 85
+    assert payload["tollAmount"] == 105
     assert payload["currency"] == "INR"
     assert payload["zoneId"] == "NH48-KHERKI"
 

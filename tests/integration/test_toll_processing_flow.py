@@ -2,6 +2,7 @@ import pytest
 import time
 import json
 import uuid
+import urllib.request
 from kafka import KafkaProducer, KafkaConsumer
 from redis import Redis
 import psycopg2
@@ -135,8 +136,8 @@ def db_conn():
         cur.execute("DELETE FROM toll_zones;")
         cur.execute("ALTER TABLE toll_zones ADD COLUMN IF NOT EXISTS flat_fee_inr DOUBLE PRECISION;")
         cur.execute("INSERT INTO toll_zones(zone_id, zone_name, rate_per_km, flat_fee_inr, geom) VALUES (%s,%s,%s,%s, ST_GeomFromEWKT(%s))",
-                    ('NH48-KHERKI','Kherki Daula',0,85,
-                     'SRID=4326;POLYGON((76.986716 28.397279, 76.980836 28.391054, 76.977376 28.393583, 76.983256 28.399808, 76.986716 28.397279))'))
+                    ('NH48-KHERKI','Kherki Daula',0,105,
+                     'SRID=4326;POLYGON((76.988538 28.398242, 76.979908 28.389350, 76.975555 28.392620, 76.984184 28.401512, 76.988538 28.398242))'))
     conn.commit()
     yield conn
     conn.close()
@@ -195,3 +196,35 @@ def test_full_flow(kafka_producer, toll_consumer, payment_consumer, db_conn, red
 
     # redis state cleared
     assert redis_client.get(f"vehicle_state:{vehicle_id}") is None
+
+    # The operations console reads these same HTTP resources.
+    ledger_request = urllib.request.Request(
+        f"http://127.0.0.1:18001/api/v1/transactions?vehicle_id={vehicle_id}",
+        headers={"X-API-KEY": BILLING_API_KEY},
+    )
+    with urllib.request.urlopen(ledger_request, timeout=10) as response:
+        ledger = json.loads(response.read().decode())
+    assert ledger["total"] >= 1
+    assert ledger["items"][0]["vehicle_id"] == vehicle_id
+    assert ledger["items"][0]["currency"] == "INR"
+    assert ledger["items"][0]["toll_event_id"] == te["eventId"]
+
+    summary_request = urllib.request.Request(
+        "http://127.0.0.1:18001/api/v1/transactions/summary",
+        headers={"X-API-KEY": BILLING_API_KEY},
+    )
+    with urllib.request.urlopen(summary_request, timeout=10) as response:
+        summary = json.loads(response.read().decode())
+    assert summary["total"] >= 1
+
+    stream_request = urllib.request.Request(
+        "http://127.0.0.1:18001/api/v1/stream",
+        headers={"X-API-KEY": BILLING_API_KEY},
+    )
+    with urllib.request.urlopen(stream_request, timeout=10) as response:
+        opened = response.readline().decode()
+    assert "hello" in opened
+
+    with urllib.request.urlopen("http://127.0.0.1:18080/zones", timeout=10) as response:
+        zones = json.loads(response.read().decode())
+    assert any(zone["zoneId"] == "NH48-KHERKI" for zone in zones["zones"])

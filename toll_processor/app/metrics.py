@@ -51,7 +51,7 @@ toll_amount_inr = Histogram(
     'toll_processor_toll_amount_inr',
     'Distribution of calculated toll amounts (INR)',
     labelnames=['zone_id'],
-    buckets=(10, 20, 45, 85, 105, 150, 250, 500),
+    buckets=(20, 85, 105, 205, 250, 500),
 )
 
 # --- Service health ---

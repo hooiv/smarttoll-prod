@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchHealth, fetchSummary, fetchTracks, fetchTransactions, fetchZones } from './api'
+import { fetchHealth, fetchSummary, fetchTransactions } from './api'
 import { MapPane } from './MapPane'
 import type { HealthState, Summary, Transaction, VehicleTrack, Zone } from './types'
 
@@ -34,43 +34,107 @@ export default function App() {
   const [zones, setZones] = useState<Zone[]>([])
   const [health, setHealth] = useState<HealthMap>({})
   const [ledgerError, setLedgerError] = useState<string | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
+  const [zoneError, setZoneError] = useState<string | null>(null)
+  const [billingLink, setBillingLink] = useState<'connecting' | 'live' | 'reconnecting'>('connecting')
+  const [mapLink, setMapLink] = useState<'connecting' | 'live' | 'reconnecting'>('connecting')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     let stop = false
-    const load = async () => {
-      const [tx, sum, trail, zoneList, checks] = await Promise.all([
-        fetchTransactions().then((page) => ({ page, error: null as string | null })).catch((error: Error) => ({ page: null, error: error.message })),
-        fetchSummary().catch(() => null),
-        fetchTracks().catch(() => null),
-        fetchZones().catch(() => null),
-        Promise.all(HEALTH_CHECKS.map(async (check) => [check.id, await fetchHealth(check.path)] as const)),
-      ])
-      if (stop) return
-      if (tx.page) {
-        setTransactions(tx.page.items)
-        setTotal(tx.page.total)
+    const refreshLedger = async () => {
+      try {
+        const page = await fetchTransactions()
+        if (stop) return
+        setTransactions(page.items)
+        setTotal(page.total)
         setLedgerError(null)
-      } else {
-        setLedgerError(tx.error)
+      } catch (error) {
+        if (!stop) setLedgerError(error instanceof Error ? error.message : 'Ledger request failed')
       }
-      setSummary(sum)
-      if (trail) {
-        setTracks(trail)
-        setMapError(null)
-      } else {
-        setMapError('Track feed is unavailable.')
+      try {
+        const next = await fetchSummary()
+        if (stop) return
+        setSummary(next)
+        setSummaryError(null)
+      } catch (error) {
+        if (!stop) setSummaryError(error instanceof Error ? error.message : 'Summary request failed')
       }
-      if (zoneList) setZones(zoneList)
-      setHealth(Object.fromEntries(checks))
     }
-    load()
-    const timer = window.setInterval(load, 4000)
+    const refreshHealth = async () => {
+      const checks = await Promise.all(
+        HEALTH_CHECKS.map(async (check) => [check.id, await fetchHealth(check.path)] as const),
+      )
+      if (!stop) setHealth(Object.fromEntries(checks))
+    }
+    void refreshLedger()
+    void refreshHealth()
+    const healthTimer = window.setInterval(() => { void refreshHealth() }, 5000)
+
+    let billingRetry = 0
+    let mapRetry = 0
+    let billingSource: EventSource | null = null
+    let mapSource: EventSource | null = null
+
+    const openBilling = () => {
+      billingSource?.close()
+      const source = new EventSource('/api/v1/stream')
+      billingSource = source
+      source.onopen = () => { if (!stop) setBillingLink('live') }
+      source.addEventListener('hello', () => { void refreshLedger() })
+      source.addEventListener('transaction', () => { void refreshLedger() })
+      let closed = false
+      source.onerror = () => {
+        if (closed) return
+        closed = true
+        source.close()
+        if (stop) return
+        setBillingLink('reconnecting')
+        billingRetry = window.setTimeout(openBilling, 2000)
+      }
+    }
+    const openMap = () => {
+      mapSource?.close()
+      const source = new EventSource('/processor/stream')
+      mapSource = source
+      source.onopen = () => { if (!stop) setMapLink('live') }
+      source.addEventListener('map', (event) => {
+        if (stop) return
+        try {
+          const body = JSON.parse((event as MessageEvent<string>).data) as {
+            vehicles?: VehicleTrack[]
+            zones?: Zone[]
+          }
+          setTracks(body.vehicles ?? [])
+          setZones(body.zones ?? [])
+          setMapError(null)
+          setZoneError(body.zones && body.zones.length > 0 ? null : 'The processor returned no toll zones.')
+        } catch {
+          setMapError('The map stream sent a payload the console could not read.')
+        }
+      })
+      let closed = false
+      source.onerror = () => {
+        if (closed) return
+        closed = true
+        source.close()
+        if (stop) return
+        setMapLink('reconnecting')
+        setMapError('Map stream disconnected. Reconnecting.')
+        mapRetry = window.setTimeout(openMap, 2000)
+      }
+    }
+    openBilling()
+    openMap()
     return () => {
       stop = true
-      window.clearInterval(timer)
+      window.clearInterval(healthTimer)
+      window.clearTimeout(billingRetry)
+      window.clearTimeout(mapRetry)
+      billingSource?.close()
+      mapSource?.close()
     }
   }, [])
 
@@ -95,6 +159,9 @@ export default function App() {
         <div className="brand">
           <strong>SmartToll</strong>
           <span>Operations</span>
+          <span className={`pill ${billingLink === 'live' && mapLink === 'live' ? 'up' : 'degraded'}`} role="status">
+            {billingLink === 'live' && mapLink === 'live' ? 'live' : billingLink === 'connecting' && mapLink === 'connecting' ? 'connecting' : 'reconnecting'}
+          </span>
         </div>
         <nav aria-label="Page">
           <a href="#map">Map</a>
@@ -108,17 +175,17 @@ export default function App() {
         <section className="stats" aria-label="Totals">
           <article className="card">
             <h2>Transactions</h2>
-            <p className="stat-value">{summary ? summary.total : '—'}</p>
+            <p className="stat-value">{summary ? summary.total : 'n/a'}</p>
             <p className="stat-note">Rows in Postgres</p>
           </article>
           <article className="card">
             <h2>Collected</h2>
-            <p className="stat-value">{summary ? money(summary.amount_total) : '—'}</p>
+            <p className="stat-value">{summary ? money(summary.amount_total) : 'n/a'}</p>
             <p className="stat-note">Sum of stored amounts</p>
           </article>
           <article className="card">
             <h2>Success</h2>
-            <p className="stat-value">{successRate === null ? '—' : `${successRate}%`}</p>
+            <p className="stat-value">{successRate === null ? 'n/a' : `${successRate}%`}</p>
             <p className="stat-note">{success ? `${success.count} succeeded` : 'No charges yet'}</p>
           </article>
           <article className="card">
@@ -131,24 +198,24 @@ export default function App() {
         <section className="split" id="map">
           <div className="panel">
             <header>
-              <h2>NH-48 · Delhi to Gurugram</h2>
+              <h2>NH-48 · Delhi to Neemrana</h2>
               <span className="muted">OpenStreetMap · filled dot means inside the zone</span>
             </header>
             <div className="map-frame" role="region" aria-label="Map of the toll zone and vehicle tracks">
               <MapPane zones={zones} tracks={tracks} selectedId={selectedId} />
             </div>
-            {mapError && <div className="body"><p className="banner">{mapError} The outline is the Kherki Daula capture area.</p></div>}
+            {(mapError || zoneError) && <div className="body"><p className="banner">{mapError ?? zoneError}</p></div>}
           </div>
           <div className="panel">
             <header><h2>Pipeline</h2></header>
             <div className="body">
               <ul className="health-list">
                 {HEALTH_CHECKS.map((check) => {
-                  const state = health[check.id] ?? 'down'
+                  const state = health[check.id]
                   return (
                     <li key={check.id}>
                       <span>{check.label}</span>
-                      <span className={`pill ${statusClass(state)}`}>{state}</span>
+                      <span className={`pill ${state ? statusClass(state) : ''}`}>{state ?? 'n/a'}</span>
                     </li>
                   )
                 })}
@@ -167,7 +234,9 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <p className="muted">No payment outcomes yet.</p>
+                <p className={summaryError ? 'banner' : 'muted'}>
+                  {summaryError ? `Payment totals are unavailable. ${summaryError}` : 'No payment outcomes yet.'}
+                </p>
               )}
             </div>
           </div>
@@ -188,7 +257,7 @@ export default function App() {
           </div>
           {ledgerError && <div className="body"><p className="banner">Could not load the ledger. {ledgerError}</p></div>}
           {transactions === null && !ledgerError && <p className="empty">Loading transactions…</p>}
-          {transactions && filtered.length === 0 && <p className="empty">No transactions match. A charge is written when a vehicle leaves a plaza zone on NH-48.</p>}
+          {transactions && filtered.length === 0 && <p className="empty">No transactions match. A charge is written when a vehicle leaves Kherki Daula or Shahjahanpur.</p>}
           {filtered.length > 0 && (
             <table>
               <thead>
@@ -218,7 +287,7 @@ export default function App() {
                     <td>{row.vehicle_id}</td>
                     <td className="right mono">{money(Number(row.amount), row.currency)}</td>
                     <td><span className={`pill ${statusClass(row.status)}`}>{row.status}</span></td>
-                    <td className="mono">{row.payment_gateway_ref ?? '—'}</td>
+                    <td className="mono">{row.payment_gateway_ref ?? 'n/a'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -236,10 +305,10 @@ export default function App() {
                 <dd className="mono">
                   {selectedTrack?.points.length
                     ? `${selectedTrack.points.at(-1)?.lat.toFixed(5)}, ${selectedTrack.points.at(-1)?.lon.toFixed(5)}`
-                    : '—'}
+                    : 'n/a'}
                 </dd>
                 <dt>Last error</dt>
-                <dd>{selectedRows.find((row) => row.error_message)?.error_message ?? '—'}</dd>
+                <dd>{selectedRows.find((row) => row.error_message)?.error_message ?? 'n/a'}</dd>
               </dl>
             </div>
           )}
@@ -249,7 +318,7 @@ export default function App() {
           <header><h2>About this project</h2></header>
           <div className="body">
             <p>
-              SmartToll follows NH-48 from Mahipalpur in Delhi to Manesar in Haryana. GPS fixes go to Kafka, a processor tests them against three plaza polygons, and the billing service stores one INR charge per crossing. The numbers on this page come from those services.
+              SmartToll follows NH-48 from Mahipalpur in Delhi to the Shahjahanpur plaza near Neemrana. Only two booths on that drive still collect a car toll: Kherki Daula and Shahjahanpur. Sirhaul was removed in 2014, and the IGI plaza at Mahipalpur stopped charging cars in November 2025. Kukdola, the planned replacement for Kherki Daula, is not open yet.
             </p>
             <p>
               The map trail is a short in-memory buffer on the processor, capped so a demo cannot grow without bound. The ledger and the payment breakdown are Postgres. Health is the same live and ready endpoints the containers use. The API key is injected by nginx and is not in the browser bundle.
