@@ -139,6 +139,10 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    ports:
+      # Host URLs documented in the README (liveness + Prometheus)
+      - "8080:8080"
+      - "8081:8081"
     networks:
       - smarttoll_net
     restart: on-failure # Restart if the processor crashes
@@ -196,7 +200,8 @@ services:
       - smarttoll_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      # Alpine wget resolves "localhost" to ::1 first; probe IPv4 directly.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3
