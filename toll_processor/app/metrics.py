@@ -47,11 +47,11 @@ toll_events_published_total = Counter(
     labelnames=['zone_id'],
 )
 
-toll_amount_usd = Histogram(
-    'toll_processor_toll_amount_usd',
-    'Distribution of calculated toll amounts (USD)',
+toll_amount_inr = Histogram(
+    'toll_processor_toll_amount_inr',
+    'Distribution of calculated toll amounts (INR)',
     labelnames=['zone_id'],
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0),
+    buckets=(10, 20, 45, 85, 105, 150, 250, 500),
 )
 
 # --- Service health ---

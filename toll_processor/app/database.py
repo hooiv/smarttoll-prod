@@ -103,7 +103,7 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
         A dictionary containing zone_id and rate_per_km if found, otherwise None.
     """
     query = """
-        SELECT zone_id, rate_per_km
+        SELECT zone_id, rate_per_km, flat_fee_inr
         FROM toll_zones -- Make sure this table exists and is populated
         WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326)) -- Longitude, Latitude order for ST_MakePoint
         LIMIT 1;
@@ -115,8 +115,9 @@ def get_current_toll_zone(latitude: float, longitude: float) -> dict | None:
                 cursor.execute(query, (longitude, latitude))
                 result = cursor.fetchone() # Returns a dict or None
                 if result:
-                    # Ensure rate is float
                     result['rate_per_km'] = float(result['rate_per_km'])
+                    if result.get('flat_fee_inr') is not None:
+                        result['flat_fee_inr'] = float(result['flat_fee_inr'])
                 log.debug(f"Geofence check for ({latitude}, {longitude}): {'Found zone ' + result['zone_id'] if result else 'No zone found'}")
                 return result
     except Psycopg2OpError as db_err:
@@ -158,27 +159,48 @@ def init_db_schema():
                     geom geometry(POLYGON,4326) NOT NULL
                 );
             """)
-            # Add spatial GiST index for fast ST_Contains geofence lookups
+            # Plaza crossings bill a flat INR amount. NULL means distance * rate_per_km.
+            cur.execute("ALTER TABLE toll_zones ADD COLUMN IF NOT EXISTS flat_fee_inr NUMERIC;")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_toll_zones_geom
                 ON toll_zones USING GIST(geom);
             """)
-            # Seed default zone that the OBU simulator route passes through
-            # Simulator drives from (40.700, -74.010) to (40.720, -74.000); zone covers the mid-section
+            # Drop the old NYC sample if a previous boot seeded it.
+            cur.execute("DELETE FROM toll_zones WHERE zone_id = 'Zone1';")
+            # Polygons are ~1.3 km along NH-48 and ~440 m across, centred on the
+            # simulator trace so a car following the highway actually crosses them.
+            #   NH48-IGI     Mahipalpur / IGI plaza, 28.5439 N, 77.1154 E
+            #   NH48-SIRHAUL Delhi–Gurugram border near Sirhaul
+            #   NH48-KHERKI  Kherki Daula plaza, 28.3956 N, 76.9818 E
             cur.execute("""
-                INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, geom)
-                VALUES (
-                    'Zone1',
-                    'NYC Demo Zone',
-                    0.15,
-                    ST_SetSRID(
-                        ST_MakePolygon(
-                            ST_GeomFromText('LINESTRING(-74.008 40.705, -74.002 40.705, -74.002 40.715, -74.008 40.715, -74.008 40.705)')
-                        ),
-                        4326
-                    )
+                INSERT INTO toll_zones (zone_id, zone_name, rate_per_km, flat_fee_inr, geom)
+                VALUES
+                (
+                    'NH48-IGI',
+                    'IGI Airport plaza, NH-48 Mahipalpur',
+                    0,
+                    20,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((77.122471 28.545479, 77.118577 28.538143, 77.114495 28.539815, 77.118389 28.547151, 77.122471 28.545479))'), 4326)
+                ),
+                (
+                    'NH48-SIRHAUL',
+                    'Sirhaul border segment, NH-48',
+                    0,
+                    45,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((77.090740 28.503925, 77.094722 28.496626, 77.090662 28.494915, 77.086680 28.502214, 77.090740 28.503925))'), 4326)
+                ),
+                (
+                    'NH48-KHERKI',
+                    'Kherki Daula toll plaza, NH-48',
+                    0,
+                    85,
+                    ST_SetSRID(ST_GeomFromText('POLYGON((76.986716 28.397279, 76.980836 28.391054, 76.977376 28.393583, 76.983256 28.399808, 76.986716 28.397279))'), 4326)
                 )
-                ON CONFLICT (zone_id) DO NOTHING;
+                ON CONFLICT (zone_id) DO UPDATE
+                SET zone_name = EXCLUDED.zone_name,
+                    rate_per_km = EXCLUDED.rate_per_km,
+                    flat_fee_inr = EXCLUDED.flat_fee_inr,
+                    geom = EXCLUDED.geom;
             """)
         # Commit DDL + seed data so they persist
         conn.commit()

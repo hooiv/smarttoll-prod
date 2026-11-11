@@ -19,7 +19,7 @@ docker compose up -d
 | Toll processor metrics | http://localhost:8081/ |
 | Simulator readiness | http://localhost:8082/health/ready |
 
-The operations console at port 3000 is a real view of the stack: recent transactions, payment totals, pipeline health, and a map of Zone1 with the processor's recent GPS trails. nginx proxies `/api`, `/processor`, and `/simulator`, and attaches the API key on the server. The browser bundle does not contain it. Direct calls to the billing service still send `X-API-KEY` (the value in `.env`, default `supersecretapikey123`).
+The operations console at port 3000 is a real view of the stack: recent transactions in INR, payment totals, pipeline health, and a map of NH-48 from Delhi to Gurugram. Times are shown in Asia/Kolkata. nginx proxies `/api`, `/processor`, and `/simulator`, and attaches the API key on the server. The browser bundle does not contain it. Direct calls to the billing service still send `X-API-KEY` (the value in `.env`, default `supersecretapikey123`).
 
 Grafana opens anonymously as a viewer. The local admin password is `admin` unless `GRAFANA_ADMIN_PASSWORD` is set. Do not expose that port as-is.
 
@@ -46,7 +46,7 @@ One GPS fix is handled like this:
 
 1. The simulator publishes a point on `smarttoll.gps.raw.v1`, keyed by vehicle id, with a `traceId`.
 2. The processor drops points older than 10 minutes or more than 60 seconds in the future.
-3. PostGIS `ST_Contains` answers whether the point is inside a toll zone. Zones are seeded on startup (Zone1 covers the simulator's NYC route, $0.15/km).
+3. PostGIS `ST_Contains` answers whether the point is inside a toll zone. Startup seeds three NH-48 capture polygons. Two use published car rates; one is an explicit assumption (see below).
 4. Redis holds the in-zone state for 6 hours. Distance is the sum of Haversine segments.
 5. On exit, the processor publishes one toll event. The event id is the idempotency key for everything downstream.
 6. Billing inserts a `PENDING` row, calls the gateway, then stores `SUCCESS` or `FAILED`. A second delivery of the same event id does not charge again.
@@ -113,7 +113,17 @@ Transaction routes require `X-API-KEY`. Every response carries `X-Request-ID`, a
 
 - **One Kafka broker and ZooKeeper.** Confluent 7.3 is what the cgroup v2 workaround in Compose was written for. KRaft would be the production broker topology; it does not change the application contract.
 - **No Kubernetes manifests.** The probes and metrics endpoints are the contract an orchestrator needs. Compose is the thing a reviewer can run.
-- **Haversine, not a road network.** Distance is the GPS path, not a map-matched route. PostGIS is used for the geofence, where a spatial index matters.
+- **Haversine, not a road network.** Distance is still recorded, but the Delhi plazas bill a flat INR fee on exit. That matches how NHAI charges a car at a booth, rather than a per-kilometre meter inside the polygon. The polygon is only the capture area around the plaza.
+
+**Where the corridor and the rates come from.** The simulator follows a thinned driving trace of NH-48 from Mahipalpur (Delhi) to Manesar (Haryana), so the fixes sit on the expressway rather than on a straight line. The three zones are:
+
+| Zone | Place | Car fee | Basis |
+|---|---|---|---|
+| `NH48-IGI` | IGI Airport plaza, Mahipalpur, 28.5439° N, 77.1154° E | ₹20 | NHAI toll information system extract (car, single journey). This is an older published figure, not a 2026 gazette. |
+| `NH48-SIRHAUL` | Delhi–Gurugram border near Sirhaul | ₹45 | Assumption. The old Sirhaul plaza is not a live booth. The fee is a round demo segment charge so a single drive produces a second crossing. |
+| `NH48-KHERKI` | Kherki Daula plaza, 28.3956° N, 76.9818° E | ₹85 | NHAI car single journey from 3 June 2024 ([Hindustan Times](https://www.hindustantimes.com/cities/others/new-toll-fees-for-delhi-gurgaon-e-way-sohna-elevated-road-in-place-from-monday-101717352560665.html)). Later WPI revisions are not applied. |
+
+NH-48 was chosen over the DND Flyway because DND toll collection was stopped by the courts, and over a generic Delhi box because Kherki Daula is a real plaza on the Delhi–Gurugram expressway with a cited car rate. Vehicle ids use Indian registration marks (`HR26DK8481` for the simulator, `DL01AB1234` in the manual trip).
 - **Retry counts for billing live in memory.** A restart redelivers uncommitted offsets, and the database unique key stops a double charge. The counter itself does not survive a crash, which is the point of the database check.
 - **The in-zone trip is not an outbox.** If the process dies after computing a toll and before Kafka accepts it, that exit can be lost. A transactional outbox is the next step if the charge must be exactly-once rather than at-least-once-with-idempotency.
 - **Formatter debt.** `.flake8` ignores the pre-existing whitespace style so CI can fail on new classes of defect. Reformatting the tree would bury behavior changes.

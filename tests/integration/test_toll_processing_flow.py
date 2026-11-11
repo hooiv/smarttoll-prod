@@ -133,8 +133,10 @@ def db_conn():
         """)
         cur.execute("TRUNCATE billing_transactions RESTART IDENTITY CASCADE;")
         cur.execute("DELETE FROM toll_zones;")
-        cur.execute("INSERT INTO toll_zones(zone_id, zone_name, rate_per_km, geom) VALUES (%s,%s,%s, ST_GeomFromEWKT(%s))", 
-                    ('Zone1','Test Zone',0.1,'SRID=4326;POLYGON((-74.008 40.705,-74.002 40.705,-74.002 40.715,-74.008 40.715,-74.008 40.705))'))
+        cur.execute("ALTER TABLE toll_zones ADD COLUMN IF NOT EXISTS flat_fee_inr DOUBLE PRECISION;")
+        cur.execute("INSERT INTO toll_zones(zone_id, zone_name, rate_per_km, flat_fee_inr, geom) VALUES (%s,%s,%s,%s, ST_GeomFromEWKT(%s))",
+                    ('NH48-KHERKI','Kherki Daula',0,85,
+                     'SRID=4326;POLYGON((76.986716 28.397279, 76.980836 28.391054, 76.977376 28.393583, 76.983256 28.399808, 76.986716 28.397279))'))
     conn.commit()
     yield conn
     conn.close()
@@ -162,8 +164,9 @@ def test_full_flow(kafka_producer, toll_consumer, payment_consumer, db_conn, red
     vehicle_id = f"veh_{uuid.uuid4().hex[:6]}"
     device_id = "dev123"
     t0 = int(time.time() * 1000)
-    enter = {"deviceId": device_id, "vehicleId": vehicle_id, "timestamp": t0, "latitude": 40.71, "longitude": -74.005, "speedKmph": 50}
-    exit = {"deviceId": device_id, "vehicleId": vehicle_id, "timestamp": t0 + 10000, "latitude": 40.72, "longitude": -74.0, "speedKmph": 60}
+    # Inside the Kherki Daula capture polygon, then southwest of it on NH-48.
+    enter = {"deviceId": device_id, "vehicleId": vehicle_id, "timestamp": t0, "latitude": 28.39543, "longitude": 76.98205, "speedKmph": 70}
+    exit = {"deviceId": device_id, "vehicleId": vehicle_id, "timestamp": t0 + 10000, "latitude": 28.36174, "longitude": 76.93575, "speedKmph": 70}
 
     kafka_producer.send(GPS_TOPIC, key=vehicle_id, value=enter);
     kafka_producer.flush();
@@ -175,7 +178,7 @@ def test_full_flow(kafka_producer, toll_consumer, payment_consumer, db_conn, red
     assert toll_msg, "Toll event not received"
     te = toll_msg.value
     assert te['vehicleId'] == vehicle_id
-    assert te['zoneId'] == 'Zone1'
+    assert te['zoneId'] == 'NH48-KHERKI'
 
     payment_msg = _next_where(payment_consumer, lambda event: event.get("eventId") == te["eventId"])
     assert payment_msg, "Payment event not received"

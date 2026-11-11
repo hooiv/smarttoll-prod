@@ -20,7 +20,7 @@ class BillingTransaction(Base):
                            comment="Unique ID from the originating TollEvent")
     vehicle_id = Column(String, index=True, nullable=False, comment="Vehicle identifier")
     amount = Column(Numeric(10, 2), nullable=False, comment="Toll amount charged")
-    currency = Column(String(3), nullable=False, comment="ISO currency code (e.g., USD)")
+    currency = Column(String(3), nullable=False, comment="ISO currency code (INR for the Delhi corridor)")
 
     # Status and Timestamps
     status = Column(String(20), default="PENDING", nullable=False, index=True,
@@ -63,7 +63,7 @@ class TollEvent(BaseModel):
     distanceKm: float
     ratePerKm: float
     tollAmount: float
-    currency: str = "USD"
+    currency: str = "INR"
     processedTimestamp: int
     traceId: Optional[str] = None
 

@@ -1,4 +1,4 @@
-"""Drive N vehicles through Zone1 and report how many charges landed.
+"""Drive N vehicles through the Kherki Daula plaza and report how many charges landed.
 
 Usage (stack already up):
     python scripts/load_trips.py --vehicles 20
@@ -20,9 +20,9 @@ API_KEY = "supersecretapikey123"
 def send_trip(producer: KafkaProducer, vehicle_id: str) -> None:
     now = int(time.time() * 1000)
     points = [
-        (40.710, -74.005, now),
-        (40.712, -74.004, now + 2000),
-        (40.720, -74.000, now + 4000),
+        (28.40004, 76.98636, now),
+        (28.39543, 76.98205, now + 2000),
+        (28.36174, 76.93575, now + 4000),
     ]
     for lat, lon, ts in points:
         payload = {
@@ -50,7 +50,7 @@ def count_for(prefix: str) -> tuple[int, int]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--vehicles", type=int, default=20)
-    parser.add_argument("--prefix", default="VEH_LOAD_")
+    parser.add_argument("--prefix", default="DL01AB")
     args = parser.parse_args()
     producer = KafkaProducer(
         bootstrap_servers=BROKER,

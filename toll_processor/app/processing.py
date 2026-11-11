@@ -47,9 +47,12 @@ def calculate_distance_haversine(lat1: float, lon1: float, lat2: float, lon2: fl
 #     return calculate_distance_haversine(lat1, lon1, lat2, lon2) # Fallback
 
 
-def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float, timestamp_ms: int, lat: float, lon: float):
+def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float, timestamp_ms: int, lat: float, lon: float, flat_fee_inr: float | None = None):
     """Handles logic when a vehicle enters a zone."""
-    log.info(f"Vehicle {vehicle_id} (Device: {device_id}) ENTERED toll zone {zone_id} at rate {rate}/km.")
+    if flat_fee_inr:
+        log.info(f"Vehicle {vehicle_id} (Device: {device_id}) ENTERED toll zone {zone_id} at flat fee {flat_fee_inr:.0f} INR.")
+    else:
+        log.info(f"Vehicle {vehicle_id} (Device: {device_id}) ENTERED toll zone {zone_id} at rate {rate}/km.")
     new_state = VehicleState(
         in_zone=True,
         zone_id=zone_id,
@@ -59,7 +62,8 @@ def handle_zone_entry(vehicle_id: str, device_id: str, zone_id: str, rate: float
         lat=lat, # Store first position inside zone
         lon=lon,
         last_update=timestamp_ms,
-        deviceId=device_id
+        deviceId=device_id,
+        flat_fee_inr=flat_fee_inr,
     )
     vehicle_state_manager.update_vehicle_state(vehicle_id, new_state)
     metrics.zone_entries_total.labels(zone_id=zone_id).inc()
@@ -86,13 +90,19 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
              log.warning(f"Calculated unusually large distance ({total_distance}km) for {vehicle_id} exiting {last_state.zone_id}.")
 
         rate = last_state.rate_per_km
-        # Use Decimal arithmetic for financial calculations to avoid floating-point
-        # precision errors (e.g., 0.15 * 1.187 = 0.17805 not 0.17805000000000002).
-        toll_amount = float(
-            (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
+        if last_state.flat_fee_inr:
+            # NHAI-style plaza: one published fee for the crossing, not a per-km meter.
+            toll_amount = float(
+                Decimal(str(last_state.flat_fee_inr)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             )
-        )
+        else:
+            # Use Decimal arithmetic for financial calculations to avoid floating-point
+            # precision errors (e.g., 0.15 * 1.187 = 0.17805 not 0.17805000000000002).
+            toll_amount = float(
+                (Decimal(str(total_distance)) * Decimal(str(rate))).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            )
 
         toll_amount = round(toll_amount, 2) # Belt-and-suspenders: already 2dp from Decimal
 
@@ -107,7 +117,7 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
             distanceKm=round(total_distance, 3),
             ratePerKm=rate,
             tollAmount=toll_amount,
-            currency="USD", # Get from config or zone data in future
+            currency=settings.TOLL_CURRENCY,
             processedTimestamp=int(time.time() * 1000),
             traceId=trace_id or str(uuid.uuid4()),
         )
@@ -123,7 +133,7 @@ def handle_zone_exit(vehicle_id: str, device_id: str, last_state: VehicleState, 
                 f"Dist={toll_event.distanceKm:.3f}km"
             )
             metrics.toll_events_published_total.labels(zone_id=last_state.zone_id).inc()
-            metrics.toll_amount_usd.labels(zone_id=last_state.zone_id).observe(toll_amount)
+            metrics.toll_amount_inr.labels(zone_id=last_state.zone_id).observe(toll_amount)
         else:
             log.error(f"Failed to publish Toll Event for Vehicle {vehicle_id}, Zone {last_state.zone_id}. Event ID: {toll_event.eventId}")
             # Implement retry logic or dead-letter queue for critical billing events if needed
@@ -233,10 +243,10 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
                     # Exit previous zone using current point as the segment end
                     handle_zone_exit(vehicle_id, device_id, last_state, timestamp_ms, lat, lon, gps_data.traceId)
                     # Enter the new zone
-                    handle_zone_entry(vehicle_id, device_id, current_zone_id, current_rate, timestamp_ms, lat, lon)
+                    handle_zone_entry(vehicle_id, device_id, current_zone_id, current_rate, timestamp_ms, lat, lon, current_zone_info.get("flat_fee_inr"))
             else:
                 # Entered a zone (was outside or first message for this vehicle)
-                handle_zone_entry(vehicle_id, device_id, current_zone_id, current_rate, timestamp_ms, lat, lon)
+                handle_zone_entry(vehicle_id, device_id, current_zone_id, current_rate, timestamp_ms, lat, lon, current_zone_info.get("flat_fee_inr"))
         else:
             # Outside a toll zone
             if last_state and last_state.in_zone:

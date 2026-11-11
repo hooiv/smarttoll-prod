@@ -14,8 +14,11 @@ const HEALTH_CHECKS: { id: string; label: string; path: string }[] = [
   { id: 'simulator-ready', label: 'Simulator ready', path: '/simulator/health/ready' },
 ]
 
-const money = (amount: number, currency = 'USD') =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
+const money = (amount: number, currency = 'INR') =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+
+const kolkataTime = (iso: string) =>
+  new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true })
 
 function statusClass(status: string) {
   if (status === 'SUCCESS' || status === 'up') return 'up'
@@ -128,13 +131,13 @@ export default function App() {
         <section className="split" id="map">
           <div className="panel">
             <header>
-              <h2>Zone1 and recent tracks</h2>
+              <h2>NH-48 · Delhi to Gurugram</h2>
               <span className="muted">OpenStreetMap · filled dot means inside the zone</span>
             </header>
             <div className="map-frame" role="region" aria-label="Map of the toll zone and vehicle tracks">
               <MapPane zones={zones} tracks={tracks} selectedId={selectedId} />
             </div>
-            {mapError && <div className="body"><p className="banner">{mapError} The green outline is the seeded Zone1 polygon.</p></div>}
+            {mapError && <div className="body"><p className="banner">{mapError} The outline is the Kherki Daula capture area.</p></div>}
           </div>
           <div className="panel">
             <header><h2>Pipeline</h2></header>
@@ -185,7 +188,7 @@ export default function App() {
           </div>
           {ledgerError && <div className="body"><p className="banner">Could not load the ledger. {ledgerError}</p></div>}
           {transactions === null && !ledgerError && <p className="empty">Loading transactions…</p>}
-          {transactions && filtered.length === 0 && <p className="empty">No transactions match. A charge is written when a vehicle leaves Zone1.</p>}
+          {transactions && filtered.length === 0 && <p className="empty">No transactions match. A charge is written when a vehicle leaves a plaza zone on NH-48.</p>}
           {filtered.length > 0 && (
             <table>
               <thead>
@@ -211,7 +214,7 @@ export default function App() {
                       }
                     }}
                   >
-                    <td className="mono">{new Date(row.transaction_time).toLocaleString()}</td>
+                    <td className="mono">{kolkataTime(row.transaction_time)}</td>
                     <td>{row.vehicle_id}</td>
                     <td className="right mono">{money(Number(row.amount), row.currency)}</td>
                     <td><span className={`pill ${statusClass(row.status)}`}>{row.status}</span></td>
@@ -246,7 +249,7 @@ export default function App() {
           <header><h2>About this project</h2></header>
           <div className="body">
             <p>
-              SmartToll is a local toll pipeline. GPS fixes go to Kafka, a processor tests them against a PostGIS zone, and the billing service stores one charge per toll event. The numbers on this page come from those services. Nothing here is a scripted animation.
+              SmartToll follows NH-48 from Mahipalpur in Delhi to Manesar in Haryana. GPS fixes go to Kafka, a processor tests them against three plaza polygons, and the billing service stores one INR charge per crossing. The numbers on this page come from those services.
             </p>
             <p>
               The map trail is a short in-memory buffer on the processor, capped so a demo cannot grow without bound. The ledger and the payment breakdown are Postgres. Health is the same live and ready endpoints the containers use. The API key is injected by nginx and is not in the browser bundle.

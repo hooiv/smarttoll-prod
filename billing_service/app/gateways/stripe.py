@@ -64,11 +64,10 @@ class StripeTestPaymentGateway:
         return intent_id
 
     def _create_intent(self, *, toll_event_id: str, vehicle_id: str, amount: float, currency: str) -> dict:
-        cents = int(round(amount * 100))
-        if cents < 50:
-            # Stripe's minimum charge is $0.50. Tolls in the demo zone are often smaller,
-            # so the adapter records the real amount in metadata and charges the minimum.
-            cents = 50
+        minor = int(round(amount * 100))
+        # Stripe minimums: 50 cents (USD) or ₹50 (INR). The real toll is still in metadata.
+        minimum = 5000 if currency.upper() == "INR" else 50
+        cents = minor if minor >= minimum else minimum
         body = urllib.parse.urlencode({
             "amount": str(cents),
             "currency": currency.lower(),

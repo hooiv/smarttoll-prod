@@ -11,10 +11,10 @@ type Props = {
 }
 
 const FALLBACK_RING: LatLngExpression[] = [
-  [40.705, -74.008],
-  [40.705, -74.002],
-  [40.715, -74.002],
-  [40.715, -74.008],
+  [28.397279, 76.986716],
+  [28.391054, 76.980836],
+  [28.393583, 76.977376],
+  [28.399808, 76.983256],
 ]
 
 function ringFromZone(zone: Zone): LatLngExpression[] {
@@ -44,8 +44,8 @@ export function MapPane({ zones, tracks, selectedId }: Props) {
 
   return (
     <MapContainer
-      center={[40.71, -74.005]}
-      zoom={14}
+      center={[28.47, 77.04]}
+      zoom={11}
       scrollWheelZoom={false}
       style={{ height: '100%', width: '100%' }}
     >

@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import random
 import signal
@@ -33,17 +34,95 @@ logger = logging.getLogger("OBUSimulator")
 # Get config from environment variables, with defaults
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "kafka:29092") # Use internal listener by default
 GPS_TOPIC = os.environ.get("GPS_TOPIC", "smarttoll.gps.raw.v1")
-DEVICE_ID = os.environ.get("SIM_DEVICE_ID", "OBU_SIM_DEFAULT")
-VEHICLE_ID = os.environ.get("SIM_VEHICLE_ID", "VEH_SIM_DEFAULT")
+DEVICE_ID = os.environ.get("SIM_DEVICE_ID", "OBU-HR26DK8481")
+VEHICLE_ID = os.environ.get("SIM_VEHICLE_ID", "HR26DK8481")
 SEND_INTERVAL_SECONDS = float(os.environ.get("SIM_SEND_INTERVAL_SECONDS", 5))
 
-# --- Simulation Parameters ---
-# Simulate driving along a line, passing through a defined geofence zone (approx)
-# Zone is roughly between lon -74.008 to -74.002 and lat 40.705 to 40.715
-START_LAT, START_LON = 40.7000, -74.0100
-END_LAT, END_LON     = 40.7200, -74.0000
-NUM_STEPS = int(os.environ.get("SIM_NUM_STEPS", 40)) # More steps for finer simulation through the zone
+# Delhi–Gurugram Expressway (NH-48), Mahipalpur to Manesar.
+# Points are a thinned driving trace (OSRM, Nov 2026) so the car follows the
+# highway instead of a straight chord. It crosses the IGI, Sirhaul, and
+# Kherki Daula capture polygons seeded by the toll processor.
+NH48_ROUTE = [
+    (28.54265, 77.11848),
+    (28.53805, 77.11604),
+    (28.53458, 77.10994),
+    (28.53046, 77.10428),
+    (28.52585, 77.10131),
+    (28.52241, 77.09708),
+    (28.52074, 77.08194),
+    (28.51563, 77.07817),
+    (28.49942, 77.09070),
+    (28.49208, 77.09102),
+    (28.48221, 77.09488),
+    (28.48052, 77.08954),
+    (28.48003, 77.08371),
+    (28.47912, 77.07782),
+    (28.47796, 77.07231),
+    (28.47280, 77.07245),
+    (28.47624, 77.06250),
+    (28.47425, 77.05750),
+    (28.47174, 77.05107),
+    (28.46950, 77.04599),
+    (28.46684, 77.04148),
+    (28.46430, 77.03636),
+    (28.46131, 77.03258),
+    (28.45801, 77.02824),
+    (28.45648, 77.02317),
+    (28.45277, 77.01990),
+    (28.44909, 77.01634),
+    (28.44528, 77.01264),
+    (28.44160, 77.00902),
+    (28.43534, 77.01021),
+    (28.43157, 77.00658),
+    (28.42144, 76.99880),
+    (28.41613, 76.99589),
+    (28.41029, 76.99275),
+    (28.40504, 76.98989),
+    (28.40004, 76.98636),
+    (28.39543, 76.98205),
+    (28.39119, 76.97800),
+    (28.38711, 76.97400),
+    (28.38335, 76.96992),
+    (28.38068, 76.96474),
+    (28.37745, 76.95836),
+    (28.37434, 76.95234),
+    (28.37069, 76.94490),
+    (28.36406, 76.94174),
+    (28.36174, 76.93575),
+]
+NUM_STEPS = int(os.environ.get("SIM_NUM_STEPS", 100))
 current_step = 0
+
+
+def _segment_lengths(route):
+    lengths = []
+    for (lat1, lon1), (lat2, lon2) in zip(route, route[1:]):
+        # Equirectangular metres, enough to space samples along the trace.
+        mean_lat = math.radians((lat1 + lat2) / 2)
+        dx = math.radians(lon2 - lon1) * math.cos(mean_lat) * 6371000
+        dy = math.radians(lat2 - lat1) * 6371000
+        lengths.append(math.hypot(dx, dy))
+    return lengths
+
+
+_SEGMENT_LENGTHS = _segment_lengths(NH48_ROUTE)
+_ROUTE_LENGTH = sum(_SEGMENT_LENGTHS) or 1.0
+
+
+def point_along_route(fraction: float):
+    """Return lat, lon, heading for a fraction in [0, 1] along NH48_ROUTE."""
+    target = max(0.0, min(1.0, fraction)) * _ROUTE_LENGTH
+    walked = 0.0
+    for (lat1, lon1), (lat2, lon2), length in zip(NH48_ROUTE, NH48_ROUTE[1:], _SEGMENT_LENGTHS):
+        if walked + length >= target or length == 0:
+            t = 0 if length == 0 else (target - walked) / length
+            lat = lat1 + (lat2 - lat1) * t
+            lon = lon1 + (lon2 - lon1) * t
+            heading = (math.degrees(math.atan2(lon2 - lon1, lat2 - lat1)) + 360) % 360
+            return lat, lon, heading
+        walked += length
+    lat, lon = NH48_ROUTE[-1]
+    return lat, lon, 220.0
 
 # --- Global State ---
 running = True
@@ -193,11 +272,10 @@ def run_simulation():
     while running:
         # --- Calculate Simulated Position ---
         fraction = current_step / float(NUM_STEPS) if NUM_STEPS > 0 else 0
-        lat = START_LAT + (END_LAT - START_LAT) * fraction
-        lon = START_LON + (END_LON - START_LON) * fraction
-        # Add slight random variation to make it less perfect
-        lat += random.uniform(-0.00005, 0.00005)
-        lon += random.uniform(-0.00005, 0.00005)
+        lat, lon, heading = point_along_route(fraction)
+        # A few metres of GPS noise, not enough to leave the carriageway.
+        lat += random.uniform(-0.00003, 0.00003)
+        lon += random.uniform(-0.00003, 0.00003)
 
         # --- Create GPS Payload ---
         # Match the Pydantic model expected by the consumer (toll_processor)
@@ -208,8 +286,8 @@ def run_simulation():
             "timestamp": int(time.time() * 1000), # Epoch milliseconds UTC
             "latitude": round(lat, 6),
             "longitude": round(lon, 6),
-            "speedKmph": round(random.uniform(30, 75), 1), # Vary speed slightly
-            "heading": round(random.uniform(85, 95), 1), # Simulate mostly straight path ENE
+            "speedKmph": round(random.uniform(50, 80), 1),
+            "heading": round((heading + random.uniform(-4, 4)) % 360, 1),
             "altitudeMeters": round(random.uniform(15, 25), 1),
             "gpsQuality": random.randint(5, 12) # Simulate varying satellite count
         }
