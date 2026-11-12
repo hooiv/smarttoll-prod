@@ -172,7 +172,8 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
         message_offset: The Kafka offset of the message (for logging).
 
     Returns:
-        True if processing was successful (or skipped gracefully), False otherwise (signals potential retry).
+        True when the fix was applied, or when a bad record was copied to the error topic.
+        False when the record must be retried and its offset must stay uncommitted.
     """
     processing_start_time = time.monotonic()
     log.info(f"RECEIVED GPS message at offset {message_offset} for vehicle {message_value.get('vehicleId')}")
@@ -186,23 +187,23 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
 
     except ValidationError as e:
         log.warning(f"Invalid GPS data format at offset {message_offset}. Error: {e.errors()}. Message: {message_value}")
-        kafka_client.publish_error(
+        # Skip the fix only after the error topic has accepted the copy.
+        # A failed publish must leave the offset uncommitted so it can be retried.
+        return bool(kafka_client.publish_error(
             error_type="ValidationError",
             message=f"Invalid GPS data format: {e.errors()}",
             original_msg=message_value,
             context={"offset": message_offset}
-        )
-        return True # Skip invalid message, commit offset
+        ))
     except Exception as e:
         log.exception(f"Unexpected error parsing/validating message at offset {message_offset}: {message_value}")
-        kafka_client.publish_error(
+        return bool(kafka_client.publish_error(
             error_type="ParsingError",
             message=str(e),
             exc=e,
             original_msg=message_value,
             context={"offset": message_offset}
-        )
-        return True # Skip unparseable message
+        ))
 
     # Extract key fields after validation
     vehicle_id = gps_data.vehicleId
@@ -267,14 +268,12 @@ def process_gps_message(message_value: Dict[str, Any], message_offset: int = -1)
     except Exception as e:
         # Catch errors during core logic processing
         log.exception(f"Core logic error processing message for {vehicle_id} at offset {message_offset}.")
-        kafka_client.publish_error(
+        # Commit past a logic error only when the error topic accepted the copy.
+        return bool(kafka_client.publish_error(
             error_type="ProcessingLogicError",
             message=str(e),
             exc=e,
             original_msg=message_value,
             context={"vehicle_id": vehicle_id, "last_state": last_state.model_dump() if last_state else None} # V2
             # context={"vehicle_id": vehicle_id, "last_state": last_state.dict() if last_state else None} # V1
-        )
-        # Decide whether to commit offset (True = skip message, False = retry potentially)
-        # For persistent logic errors, True is often better to avoid blocking partition
-        return True # Commit offset even if logic fails, to avoid poison pills
+        ))

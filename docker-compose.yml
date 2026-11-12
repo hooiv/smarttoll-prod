@@ -211,7 +211,8 @@ services:
       BILLING_UPSTREAM: http://billing_service:8000
       BILLING_API_KEY: ${SERVICE_API_KEY:-supersecretapikey123}
     ports:
-      - "3000:80"
+      # The unprivileged image cannot bind port 80. Host 3000 still reaches it.
+      - "3000:8080"
     depends_on:
       billing_service:
         condition: service_healthy
@@ -220,7 +221,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # Alpine wget resolves "localhost" to ::1 first; probe IPv4 directly.
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3

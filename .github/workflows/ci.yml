@@ -31,6 +31,9 @@ jobs:
       - name: Toll processor unit tests
         working-directory: toll_processor
         run: python -m pytest tests/ -q --tb=short
+      - name: Simulator trace length
+        working-directory: obu_simulator
+        run: python -m pytest tests/ -q --tb=short
 
   integration:
     name: Integration test

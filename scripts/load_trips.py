@@ -1,11 +1,14 @@
 """Drive N vehicles through the Kherki Daula plaza and report how many charges landed.
 
-Usage (stack already up):
-    python scripts/load_trips.py --vehicles 20
+The stack must already be up. Set SMARTTOLL_API_KEY to the billing SERVICE_API_KEY.
+The script exits if that variable is missing.
+
+    SMARTTOLL_API_KEY=... python scripts/load_trips.py --vehicles 20
 """
 
 import argparse
 import json
+import os
 import time
 import urllib.request
 
@@ -14,7 +17,16 @@ from kafka import KafkaProducer
 BROKER = "127.0.0.1:9092"
 TOPIC = "smarttoll.gps.raw.v1"
 API = "http://127.0.0.1:8001/api/v1/transactions"
-API_KEY = "supersecretapikey123"
+
+
+def require_api_key() -> str:
+    key = os.environ.get("SMARTTOLL_API_KEY", "").strip()
+    if not key:
+        raise SystemExit(
+            "SMARTTOLL_API_KEY is not set. Export the billing SERVICE_API_KEY "
+            "value before running this script."
+        )
+    return key
 
 
 def send_trip(producer: KafkaProducer, vehicle_id: str) -> None:
@@ -39,8 +51,8 @@ def send_trip(producer: KafkaProducer, vehicle_id: str) -> None:
     producer.flush()
 
 
-def count_for(prefix: str) -> tuple[int, int]:
-    request = urllib.request.Request(f"{API}?page_size=100", headers={"X-API-KEY": API_KEY})
+def count_for(prefix: str, api_key: str) -> tuple[int, int]:
+    request = urllib.request.Request(f"{API}?page_size=100", headers={"X-API-KEY": api_key})
     with urllib.request.urlopen(request, timeout=10) as response:
         body = json.loads(response.read().decode())
     matched = sum(1 for item in body["items"] if str(item["vehicle_id"]).startswith(prefix))
@@ -52,6 +64,7 @@ def main() -> None:
     parser.add_argument("--vehicles", type=int, default=20)
     parser.add_argument("--prefix", default="DL01AB")
     args = parser.parse_args()
+    api_key = require_api_key()
     producer = KafkaProducer(
         bootstrap_servers=BROKER,
         api_version=(3, 3, 1),
@@ -67,7 +80,7 @@ def main() -> None:
     matched = 0
     deadline = time.time() + 60
     while time.time() < deadline:
-        matched, _total = count_for(args.prefix)
+        matched, _total = count_for(args.prefix, api_key)
         if matched >= args.vehicles:
             break
         time.sleep(1)

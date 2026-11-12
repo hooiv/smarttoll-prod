@@ -55,7 +55,7 @@ flowchart LR
   BILL -->|billing_transactions| PG
   BILL -->|smarttoll.billing.dlq.v1| K
   BILL -->|smarttoll.payment.events.v1| K
-  NGX[nginx :3000]
+  NGX[nginx unprivileged<br/>container :8080]
   UI[Operations console]
   UI --> NGX
   NGX -->|/api + X-API-KEY| BILL
@@ -76,12 +76,12 @@ One fix is handled like this:
 4. Redis keeps the in-zone state for 6 hours. Distance is the sum of Haversine segments, and is stored even when the fee is flat.
 5. On exit, the processor publishes one toll event. `eventId` is the idempotency key downstream.
 6. Billing inserts a `PENDING` row, calls the gateway, then stores `SUCCESS` or `FAILED`. A second delivery of the same `toll_event_id` does not charge again.
-7. A malformed event, or a transient failure past `BILLING_MAX_PROCESS_ATTEMPTS` (default 5), is copied to `smarttoll.billing.dlq.v1` and the offset is committed. Processor failures go to `smarttoll.processor.errors.v1`.
+7. A malformed event, or a transient failure past `BILLING_MAX_PROCESS_ATTEMPTS` (default 5), is copied to `smarttoll.billing.dlq.v1`. The offset is committed only after that copy succeeds. Processor failures go to `smarttoll.processor.errors.v1` the same way.
 8. Billing pushes `event: transaction` on `GET /api/v1/stream`. The processor pushes `event: map` (zones and recent trails) on `GET /stream` every 2 seconds. The console updates without a manual refresh.
 
 ## Corridor
 
-The seeded drive is NH-48 from Mahipalpur in Delhi to just past Shahjahanpur, near Neemrana in Rajasthan, about 113 km. Only booths that still collect a car toll are zones. Sirhaul stopped in 2014. The IGI plaza at Mahipalpur stopped charging cars on 9 November 2025. Kukdola, the planned move of Kherki Daula, is not open.
+The seeded drive is NH-48 from Mahipalpur in Delhi to just past Shahjahanpur, near Neemrana in Rajasthan. The simulator follows those points for 97.5 km. That length is the driving trace, not the highway chainage. Only booths that still collect a car toll are zones. Sirhaul stopped in 2014. The IGI plaza at Mahipalpur stopped charging cars on 9 November 2025. Kukdola, the planned move of Kherki Daula, is not open.
 
 | Zone | Place | Car, single journey | Source |
 |---|---|---|---|
@@ -112,6 +112,7 @@ Copy `.env.example` to `.env`. Those values are local defaults, not production s
 | `SIM_VEHICLE_ID` | `HR26DK8481` | Simulator registration mark |
 | `SIM_SEND_INTERVAL_SECONDS` | `5` | Gap between fixes |
 | `SIM_NUM_STEPS` | `160` | Samples along the trace before it loops |
+| `SMARTTOLL_API_KEY` | unset | Required by `scripts/load_trips.py`. Set it to the same value as `SERVICE_API_KEY`. The script exits if it is missing. |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Local Grafana admin |
 | `LOG_LEVEL` | `INFO` | Service logs |
 
@@ -139,7 +140,7 @@ The processor, on port 8080, also serves `GET /tracks`, `GET /zones`, and `GET /
 
 Services bind their HTTP ports before Kafka is ready and retry with exponential backoff, capped at 15 seconds. Liveness is "the process is up". Readiness stays 503 until the consumer has polled and the dependency checks pass. Compose restarts with `unless-stopped`.
 
-Offsets are committed by hand. `auto_offset_reset=earliest` replays anything not yet committed. Billing's unique `toll_event_id` makes that replay safe. A poison message, or a failure after five attempts, goes to the billing dead-letter topic and the offset moves on. Retry counts live in memory. A crash redelivers uncommitted offsets, and the database unique key stops a second charge.
+Offsets are committed by hand, one record at a time. The committed value is that record's offset plus one, which is the next record Kafka should deliver. Billing commits only after the charge is stored, or after the record is copied to `smarttoll.billing.dlq.v1`. The processor commits only after the fix is applied, or after it is copied to `smarttoll.processor.errors.v1`. A commit with no offsets is not used, because that would mark every record from the last poll as done. If the dead-letter publish fails, the offset stays put and the consumer seeks back to that record, so a later record in the same partition cannot move the cursor past it. `auto_offset_reset=earliest` replays anything not yet committed. Billing's unique `toll_event_id` makes that replay safe. A poison message, or a failure after five attempts, goes to the billing dead-letter topic and then the offset moves on. Retry counts live in memory. A crash redelivers uncommitted offsets, and the database unique key stops a second charge.
 
 ## Observability
 
@@ -153,14 +154,16 @@ Billing exposes `/metrics` on port 8001. The processor exposes Prometheus on por
 make test                 # unit tests, no Docker
 make lint
 make test-integration     # Compose on ports 9093, 6380, 5433, then pytest
-python scripts/load_trips.py --vehicles 20   # optional, main stack already up
+SMARTTOLL_API_KEY=supersecretapikey123 python scripts/load_trips.py --vehicles 20
 ```
+
+`scripts/load_trips.py` reads `SMARTTOLL_API_KEY` from the environment and sends it as `X-API-KEY`. Use the same value as `SERVICE_API_KEY`. The script exits with an error if the variable is missing. The main stack must already be up.
 
 GitHub Actions runs three jobs on every push and pull request: lint plus unit tests, the integration flow (Kafka, PostGIS, Redis, billing API, SSE hello, and `/zones`), and `docker compose build`.
 
 ## Security
 
-The API key is injected by nginx. It is not in the JavaScript bundle. Authenticated routes use constant-time comparison. Application images run as a non-root user. The Kafka client is pinned to `kafka-python-ng==2.2.3`. Stripe test mode refuses live secret keys. The local Grafana password and the sample API key are demo defaults. Change them before any shared network.
+The API key is injected by nginx. It is not in the JavaScript bundle. Authenticated routes use constant-time comparison. Application images run as a non-root user. The console image is `nginxinc/nginx-unprivileged` and runs as uid 101. Inside the container it listens on 8080, and Compose publishes that as host port 3000. The Kafka client is pinned to `kafka-python-ng==2.2.3`. Stripe test mode refuses live secret keys. The local Grafana password and the sample API key are demo defaults. Change them before any shared network.
 
 Anyone who can open port 3000 can read the ledger. That is acceptable for a local demo and the wrong shape for a public deployment.
 

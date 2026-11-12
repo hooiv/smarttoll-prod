@@ -115,6 +115,7 @@ def publish_error(error_type: str, message: str, exc: Optional[Exception] = None
     success = send_message(settings.ERROR_TOPIC, error_payload.model_dump()) # Pydantic V2
     if not success:
         log.error("CRITICAL: Failed to publish error message to Kafka error topic!")
+    return success
 
 def close_kafka_producer():
     """Flushes and closes the Kafka producer."""
