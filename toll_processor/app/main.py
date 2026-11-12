@@ -3,6 +3,7 @@ import signal
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from kafka import OffsetAndMetadata, TopicPartition
 from kafka.errors import KafkaError
 
 # Initialize logging and settings first
@@ -28,6 +29,96 @@ def shutdown_handler(signum, frame):
     log.warning(f"Received signal {signal.Signals(signum).name}. Initiating graceful shutdown...")
     running = False
     # Note: Further cleanup happens in the main loop's finally block
+
+def commit_record(consumer, message) -> bool:
+    """Commit the next offset for this record and no other.
+
+    commit() with no argument would mark every record from the last poll as
+    consumed, including records this process has not handled yet.
+    """
+    tp = TopicPartition(message.topic, message.partition)
+    offsets = {tp: OffsetAndMetadata(message.offset + 1, "")}
+    try:
+        consumer.commit(offsets)
+        return True
+    except KafkaError as exc:
+        log.error("Failed to commit Kafka offset %s: %s", message.offset, exc, exc_info=True)
+        return False
+    except Exception:
+        log.exception("Unexpected error committing Kafka offset %s.", message.offset)
+        return False
+
+
+def seek_record(consumer, message) -> None:
+    """Point the consumer back at a record whose offset was not committed."""
+    try:
+        consumer.seek(TopicPartition(message.topic, message.partition), message.offset)
+    except Exception:
+        log.exception("Failed to seek back to offset %s.", message.offset)
+
+
+def process_polled_records(consumer, message_pack) -> None:
+    """Apply one poll. Stop a partition when a record cannot be committed.
+
+    Kafka keeps a single offset per partition. Committing a later record would
+    skip an earlier one that had not been stored or copied to the error topic.
+    """
+    for tp, messages in message_pack.items():
+        log.info("Processing batch of %s messages from partition %s", len(messages), tp.partition)
+        for message in messages:
+            if not running:
+                log.info("Shutdown signal received during batch processing.")
+                return
+            if not _handle_gps_record(consumer, message):
+                log.warning(
+                    "Stopping partition %s at offset %s until that record is committed.",
+                    tp.partition, message.offset,
+                )
+                break
+
+
+def _handle_gps_record(consumer, message) -> bool:
+    """Return True only when this record's next offset was committed."""
+    try:
+        metrics.messages_received_total.inc()
+        success = processing.process_gps_message(message.value, message.offset)
+    except Exception as exc:
+        log.exception("Critical unexpected error processing message at offset %s.", message.offset)
+        metrics.messages_processed_failure_total.inc()
+        published = kafka_client.publish_error(
+            error_type="UnhandledProcessingError",
+            message=str(exc),
+            exc=exc,
+            original_msg=message.value,
+            context={"offset": message.offset},
+        )
+        if not published:
+            seek_record(consumer, message)
+            return False
+        if not commit_record(consumer, message):
+            seek_record(consumer, message)
+            return False
+        return True
+
+    if not success:
+        log.error(
+            "Processing function indicated failure for message at offset %s. Check logs.",
+            message.offset,
+        )
+        metrics.messages_processed_failure_total.inc()
+        seek_record(consumer, message)
+        return False
+
+    metrics.messages_processed_success_total.inc()
+    if not commit_record(consumer, message):
+        seek_record(consumer, message)
+        return False
+    log.info(
+        "Committed next offset %s for partition %s.",
+        message.offset + 1, message.partition,
+    )
+    return True
+
 
 def main_consumer_loop():
     """The main loop executed by the consumer thread."""
@@ -67,62 +158,7 @@ def main_consumer_loop():
                 if not running:
                     log.info("Shutdown signal received during poll, exiting loop.")
                     break
-                for tp, messages in message_pack.items():
-                    log.info(f"Processing batch of {len(messages)} messages from partition {tp.partition}")
-                    commit_needed = False
-                    last_processed_offset = -1
-
-                    # --- Process Messages in Batch ---
-                    for message in messages:
-                        if not running:
-                            log.info("Shutdown signal received during batch processing.")
-                            break # Exit inner message loop
-
-                        try:
-                            # Process the message using the core logic function
-                            metrics.messages_received_total.inc()
-                            success = processing.process_gps_message(message.value, message.offset)
-                            if success:
-                                commit_needed = True
-                                last_processed_offset = message.offset
-                                metrics.messages_processed_success_total.inc()
-                            else:
-                                log.error(f"Processing function indicated failure for message at offset {message.offset}. Check logs.")
-                                metrics.messages_processed_failure_total.inc()
-
-                        except Exception as e:
-                            # Catch unexpected errors during the call to process_gps_message itself
-                            log.exception(f"Critical unexpected error processing message at offset {message.offset}.")
-                            kafka_client.publish_error(
-                                error_type="UnhandledProcessingError",
-                                message=str(e),
-                                exc=e,
-                                original_msg=message.value, # Assuming value is dict-like after deserialization
-                                context={"offset": message.offset}
-                            )
-                            # Decide if this is fatal or skippable. Let's assume skippable for now.
-                            commit_needed = True # Allow committing past this potentially poisonous message
-                            last_processed_offset = message.offset
-
-                    # --- Manual Offset Commit (after processing batch for a partition) ---
-                    if commit_needed and last_processed_offset >= 0:
-                        try:
-                            # Commit up to the offset *after* the last successfully processed message
-                            # Note: Committing per partition isn't directly supported by kafka-python's commit() easily.
-                            # consumer.commit() commits the offsets for all partitions fetched in the last poll.
-                            # This is generally safe if processing is relatively fast and errors don't block.
-                            # For more precise control, manual offset management per partition is needed.
-                            consumer.commit()
-                            log.info(f"Committed offsets for partitions processed in last poll (up to ~offset {last_processed_offset} for partition {tp.partition}).")
-                        except KafkaError as e:
-                             log.error(f"Failed to commit Kafka offsets: {e}", exc_info=True)
-                             # This is serious - may lead to reprocessing. Consider shutdown/alerting.
-                             # running = False # Optional: trigger shutdown on commit failure
-                        except Exception:
-                             log.exception("Unexpected error during Kafka commit.")
-                             # running = False
-
-                    if not running: break # Exit partition loop if shutdown requested
+                process_polled_records(consumer, message_pack)
 
             except KafkaError as e:
                  log.error(f"Kafka error during poll/consume loop: {e}", exc_info=True)

@@ -83,6 +83,14 @@ def test_process_gps_message_invalid_data(mock_dependencies):
     assert "ValidationError" in kwargs.get("error_type", "")
     assert "latitude" in kwargs.get("message", "")  # Error should mention missing latitude
 
+def test_process_gps_message_invalid_data_stays_uncommitted_when_error_topic_fails(mock_dependencies):
+    """A bad fix is retried when the error topic does not accept the copy."""
+    mock_dependencies["publish_error"].return_value = False
+    invalid_message = {"deviceId": "DEV123", "vehicleId": "VEH_ABC"}
+    success = processing.process_gps_message(invalid_message, 100)
+    assert success is False
+    mock_dependencies["publish_error"].assert_called_once()
+
 def test_process_gps_message_entry_into_zone(mock_dependencies):
     """Test logic when a vehicle enters a toll zone."""
     mock_dependencies["get_state"].return_value = None  # Vehicle has no prior state

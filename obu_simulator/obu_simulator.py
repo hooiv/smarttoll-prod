@@ -42,6 +42,8 @@ SEND_INTERVAL_SECONDS = float(os.environ.get("SIM_SEND_INTERVAL_SECONDS", 5))
 # Shahjahanpur plaza near Neemrana. Thinned from an OSRM trace so the car
 # stays on the highway. The last point is beyond the Shahjahanpur booth so
 # the crossing is an entry and an exit, which is what produces a charge.
+# _ROUTE_LENGTH is the polyline the car actually drives (97.5 km). The README
+# quotes that figure. It is not the NH-48 chainage at Shahjahanpur.
 NH48_ROUTE = [
     (28.54265, 77.11848),
     (28.53396, 77.10874),
@@ -286,7 +288,11 @@ def run_simulation():
         return
     producer_connected.set()
 
-    logger.info("Starting GPS simulation loop...")
+    logger.info(
+        "Starting GPS simulation loop. Trace length %.1f km over %s points.",
+        _ROUTE_LENGTH / 1000.0,
+        len(NH48_ROUTE),
+    )
     while running:
         # --- Calculate Simulated Position ---
         fraction = current_step / float(NUM_STEPS) if NUM_STEPS > 0 else 0

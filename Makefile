@@ -3,7 +3,7 @@
 # Requires: docker, docker compose v2, python3
 
 .PHONY: help up down build restart logs ps test test-billing test-processor \
-        test-integration test-integration-up test-integration-down \
+        test-simulator test-integration test-integration-up test-integration-down \
         shell-billing shell-processor shell-db migrate lint
 
 # Default target
@@ -19,9 +19,10 @@ help:
 	@echo "  make logs-billing        Follow logs for the billing service"
 	@echo "  make logs-processor      Follow logs for the toll processor"
 	@echo ""
-	@echo "  make test                Run all unit tests (billing + processor)"
+	@echo "  make test                Run all unit tests (billing + processor + simulator)"
 	@echo "  make test-billing        Run billing service unit tests"
 	@echo "  make test-processor      Run toll processor unit tests"
+	@echo "  make test-simulator      Check the seeded trace length against the README"
 	@echo "  make test-integration    Run integration tests (requires running stack)"
 	@echo ""
 	@echo "  make shell-billing       Open a shell in the billing container"
@@ -57,7 +58,7 @@ logs-processor:
 
 # ---- Unit Tests ----
 
-test: test-billing test-processor
+test: test-billing test-processor test-simulator
 
 test-billing:
 	@echo "=== Billing Service unit tests ==="
@@ -66,6 +67,10 @@ test-billing:
 test-processor:
 	@echo "=== Toll Processor unit tests ==="
 	cd toll_processor && python -m pytest tests/ -v
+
+test-simulator:
+	@echo "=== Simulator trace length ==="
+	cd obu_simulator && python -m pytest tests/ -v
 
 # ---- Integration Tests ----
 # The integration stack (Kafka, Redis, Postgres + app services) must be started first.

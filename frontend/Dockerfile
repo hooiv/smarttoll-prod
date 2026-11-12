@@ -10,22 +10,22 @@ COPY . .
 RUN npm run build
 
 # ── Production stage ───────────────────────────────────────────────────────
-FROM nginx:alpine AS production
+# Unprivileged nginx listens on 8080 and already keeps its pid and temp paths
+# under /tmp, so the process does not need to be root.
+FROM nginxinc/nginx-unprivileged:1.30-alpine AS production
 
-# Remove default nginx config. The official entrypoint renders templates at start
-# so BILLING_UPSTREAM and BILLING_API_KEY can be injected without a rebuild.
-RUN rm /etc/nginx/conf.d/default.conf
+USER root
+RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=builder --chown=nginx:nginx /app/dist /usr/share/nginx/html
+USER nginx
 
 ENV BILLING_UPSTREAM=http://billing_service:8000 \
     BILLING_API_KEY=supersecretapikey123
 
-# Copy built assets from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
