@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,9 +24,13 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
+    # rediss:// URL for Aiven Valkey or Upstash. Unset locally; host and port are used.
+    REDIS_URL: Optional[str] = None
     VEHICLE_STATE_TTL_SECONDS: int = 6 * 3600  # 6 hours
 
     # PostgreSQL Configuration
+    # Set on a managed database. When unset, the host fields below are used.
+    DATABASE_URL: Optional[str] = None
     POSTGRES_HOST: str = "postgres"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "smarttoll_dev"
@@ -51,4 +56,6 @@ settings = Settings()
 logging.debug("Toll Processor Settings Loaded:")
 loggable_settings = settings.model_dump()
 loggable_settings['POSTGRES_PASSWORD'] = '********'
+loggable_settings['DATABASE_URL'] = '********' if settings.DATABASE_URL else None
+loggable_settings['REDIS_URL'] = '********' if settings.REDIS_URL else None
 logging.debug(loggable_settings)

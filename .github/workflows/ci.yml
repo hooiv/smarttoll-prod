@@ -24,7 +24,7 @@ jobs:
             -r obu_simulator/requirements.txt \
             -r requirements-dev.txt
       - name: Lint
-        run: flake8 billing_service/app toll_processor/app obu_simulator scripts
+        run: flake8 billing_service/app toll_processor/app obu_simulator scripts common
       - name: Billing unit tests
         working-directory: billing_service
         run: python -m pytest tests/ -q --tb=short
@@ -34,6 +34,8 @@ jobs:
       - name: Simulator trace length
         working-directory: obu_simulator
         run: python -m pytest tests/ -q --tb=short
+      - name: Hosted connection settings
+        run: python -m pytest common/tests -q --tb=short
 
   integration:
     name: Integration test
@@ -69,3 +71,5 @@ jobs:
         run: cp .env.example .env
       - name: Build service images
         run: docker compose build
+      - name: Build the Hugging Face Space image
+        run: docker build -t smarttoll-space .
