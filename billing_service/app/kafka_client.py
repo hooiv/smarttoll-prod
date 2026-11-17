@@ -9,6 +9,7 @@ from kafka import KafkaProducer, KafkaConsumer # Consumer also needed here
 from kafka.errors import KafkaError, NoBrokersAvailable
 
 from app.config import settings
+from app.runtime_config import kafka_security_kwargs, normalize_broker
 # Import specific models if needed, or just handle dicts
 # from app.models import PaymentResult
 
@@ -25,15 +26,18 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
     global _producer
     log.info(f"Attempting to initialize Kafka producer for brokers: {settings.KAFKA_BROKER}")
     try:
+        security = kafka_security_kwargs()
+        log.info("Kafka security protocol: %s", security.get("security_protocol", "PLAINTEXT"))
         _producer = KafkaProducer(
-            bootstrap_servers=settings.KAFKA_BROKER,
+            bootstrap_servers=normalize_broker(settings.KAFKA_BROKER),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             acks='all',
             retries=5,
             retry_backoff_ms=200,
             request_timeout_ms=30000,
             linger_ms=10,
-            api_version=(3, 3, 1)
+            api_version=(3, 3, 1),
+            **security,
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
@@ -128,9 +132,10 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
     global _consumer
     log.info(f"Attempting to initialize Kafka consumer for brokers: {settings.KAFKA_BROKER}, topic: {settings.TOLL_EVENT_TOPIC}, group: {settings.BILLING_CONSUMER_GROUP_ID}")
     try:
+        security = kafka_security_kwargs()
         _consumer = KafkaConsumer(
             settings.TOLL_EVENT_TOPIC,
-            bootstrap_servers=settings.KAFKA_BROKER,
+            bootstrap_servers=normalize_broker(settings.KAFKA_BROKER),
             group_id=settings.BILLING_CONSUMER_GROUP_ID,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', 'ignore')),
             # Use 'earliest' so that events produced while the service is down are never
@@ -138,7 +143,8 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
             auto_offset_reset='earliest',
             enable_auto_commit=False,  # Manual commits
             consumer_timeout_ms=1000,  # 1 s poll timeout; allows cooperative shutdown
-            api_version=(3, 3, 1)
+            api_version=(3, 3, 1),
+            **security,
         )
         log.info("Kafka consumer initialized successfully.")
         return _consumer

@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from kafka import KafkaProducer
 from kafka.errors import KafkaError, NoBrokersAvailable
 
+from runtime_config import kafka_security_kwargs, normalize_broker
+
 # --- Setup ---
 # Load .env file variables into environment
 # This is useful if running locally without docker-compose's env_file feature
@@ -191,15 +193,17 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
     global producer
     logger.info(f"Attempting to initialize Kafka producer for broker: {KAFKA_BROKER}")
     try:
-        # Add security settings here if Kafka requires authentication/TLS
+        security = kafka_security_kwargs()
+        logger.info("Kafka security protocol: %s", security.get("security_protocol", "PLAINTEXT"))
         producer = KafkaProducer(
-            bootstrap_servers=KAFKA_BROKER,
+            bootstrap_servers=normalize_broker(KAFKA_BROKER),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             acks=1, # Fire-and-forget is often okay for high-volume sensor data
             retries=3,
             retry_backoff_ms=100,
             linger_ms=5, # Slight batching
-            api_version=(3, 3, 1) # Explicit version avoids slow broker-probing on startup
+            api_version=(3, 3, 1), # Explicit version avoids slow broker-probing on startup
+            **security,
         )
         logger.info("Kafka producer initialized successfully.")
         return producer

@@ -1,3 +1,13 @@
+---
+title: SmartToll
+emoji: "🛣️"
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # SmartToll
 
 [![CI](https://github.com/hooiv/smarttoll-prod/actions/workflows/ci.yml/badge.svg)](https://github.com/hooiv/smarttoll-prod/actions/workflows/ci.yml)
@@ -16,6 +26,8 @@ docker compose up -d
 ```
 
 The first start builds images and waits until Kafka is healthy. `docker compose ps` should then show every service healthy, including the simulator.
+
+The same pipeline can run as a free hosted demo: Aiven for Kafka, Postgres, and Valkey, one Hugging Face Space for the Python processes, and Vercel for the console. Accounts, secrets, and free-tier limits are in [DEPLOY.md](DEPLOY.md). The Compose file is unchanged. The YAML block at the top of this file is the Hugging Face Space config.
 
 | Surface | URL |
 |---|---|

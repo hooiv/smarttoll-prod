@@ -8,6 +8,7 @@ from psycopg2 import OperationalError as Psycopg2OpError
 from psycopg2.extras import RealDictCursor  # Use dict cursors for easier access
 
 from app.config import settings
+from app.runtime_config import postgres_connect_kwargs, redact_database_url
 
 log = logging.getLogger(__name__)
 
@@ -21,20 +22,23 @@ def _initialize_db_pool():
     global _db_pool
     log.info("Attempting to initialize PostgreSQL connection pool...")
     try:
+        connect_kwargs = postgres_connect_kwargs(settings=settings)
+        if "dsn" in connect_kwargs:
+            target = redact_database_url(connect_kwargs["dsn"])
+        else:
+            target = settings.POSTGRES_HOST
         _db_pool = psycopg2_pool.SimpleConnectionPool(
             settings.POSTGRES_POOL_MIN,
             settings.POSTGRES_POOL_MAX,
-            user=settings.POSTGRES_USER,
-            password=settings.POSTGRES_PASSWORD,
-            host=settings.POSTGRES_HOST,
-            port=settings.POSTGRES_PORT,
-            database=settings.POSTGRES_DB,
-            connect_timeout=settings.POSTGRES_CONNECT_TIMEOUT,
-            cursor_factory=RealDictCursor # Use dictionary cursor
+            cursor_factory=RealDictCursor, # Use dictionary cursor
+            **connect_kwargs,
         )
         # Test connection
         conn = _db_pool.getconn()
-        log.info(f"PostgreSQL connection pool initialized for host '{settings.POSTGRES_HOST}'. Connections: min={settings.POSTGRES_POOL_MIN}, max={settings.POSTGRES_POOL_MAX}")
+        log.info(
+            "PostgreSQL connection pool initialized for %s. Connections: min=%s, max=%s",
+            target, settings.POSTGRES_POOL_MIN, settings.POSTGRES_POOL_MAX,
+        )
         _db_pool.putconn(conn)
         return _db_pool
     except Psycopg2OpError as e:

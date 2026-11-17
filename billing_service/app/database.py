@@ -4,12 +4,13 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 
 from app.config import settings
+from app.runtime_config import redact_database_url
 
 log = logging.getLogger(__name__)
 
 # --- SQLAlchemy Setup ---
 try:
-    log.info(f"Initializing database engine for URL: {str(settings.DATABASE_URL).replace(settings.POSTGRES_PASSWORD, '********')}")
+    log.info("Initializing database engine for URL: %s", redact_database_url(str(settings.DATABASE_URL)))
     # Use pool_recycle to prevent stale connections after long idle times
     # `pool_pre_ping=True` checks connection validity before use
     engine = create_engine(

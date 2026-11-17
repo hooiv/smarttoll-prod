@@ -7,6 +7,7 @@ from typing import Optional
 
 from app.config import settings
 from app.models import VehicleState
+from app.runtime_config import redis_client_kwargs, redis_target_for_log
 
 log = logging.getLogger(__name__)
 
@@ -17,17 +18,15 @@ def _initialize_redis_client():
     global _redis_client
     log.info("Attempting to initialize Redis client...")
     try:
-        _redis_client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            db=settings.REDIS_DB,
-            decode_responses=True, # Decode responses to strings
-            socket_connect_timeout=5,
-            socket_keepalive=True,
-            health_check_interval=30 # Check connection periodically
-        )
+        params = redis_client_kwargs(settings=settings)
+        target = redis_target_for_log(params)
+        url = params.pop("from_url", None)
+        if url:
+            _redis_client = redis.Redis.from_url(url, **params)
+        else:
+            _redis_client = redis.Redis(**params)
         _redis_client.ping() # Verify connection
-        log.info(f"Redis client initialized for host '{settings.REDIS_HOST}'.")
+        log.info("Redis client initialized for %s.", target)
         return _redis_client
     except RedisConnectionError as e:
         log.error(f"Redis connection failed: {e}")

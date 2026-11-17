@@ -8,6 +8,7 @@ from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError, NoBrokersAvailable
 
 from app.config import settings
+from app.runtime_config import kafka_security_kwargs, normalize_broker
 from app.models import ErrorMessage # Import error model
 
 log = logging.getLogger(__name__)
@@ -25,22 +26,18 @@ def _initialize_kafka_producer() -> Optional[KafkaProducer]:
     global _producer
     log.info(f"Attempting to initialize Kafka producer for brokers: {settings.KAFKA_BROKER}")
     try:
-        # Add security protocol settings here if needed based on Kafka setup
-        # Example:
-        # security_protocol="SASL_SSL",
-        # sasl_mechanism="PLAIN",
-        # sasl_plain_username="user",
-        # sasl_plain_password="password",
-        # ssl_cafile='/path/to/ca.crt' # Example for TLS
+        security = kafka_security_kwargs()
+        log.info("Kafka security protocol: %s", security.get("security_protocol", "PLAINTEXT"))
         _producer = KafkaProducer(
-            bootstrap_servers=settings.KAFKA_BROKER,
+            bootstrap_servers=normalize_broker(settings.KAFKA_BROKER),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             acks='all', # Wait for all in-sync replicas to acknowledge
             retries=5,  # Retry on transient errors
             retry_backoff_ms=200, # Wait longer between retries
             request_timeout_ms=30000, # Timeout for producer requests
             linger_ms=10, # Batch messages slightly for better throughput
-            api_version=(3, 3, 1) # Explicitly set version to avoid probing delays
+            api_version=(3, 3, 1), # Explicitly set version to avoid probing delays
+            **security,
         )
         log.info("Kafka producer initialized successfully.")
         return _producer
@@ -139,16 +136,17 @@ def _initialize_kafka_consumer() -> Optional[KafkaConsumer]:
     global _consumer
     log.info(f"Attempting to initialize Kafka consumer for brokers: {settings.KAFKA_BROKER}, topic: {settings.GPS_TOPIC}, group: {settings.CONSUMER_GROUP_ID}")
     try:
-        # Add security protocol settings here if needed (match producer)
+        security = kafka_security_kwargs()
         _consumer = KafkaConsumer(
             settings.GPS_TOPIC,
-            bootstrap_servers=settings.KAFKA_BROKER,
+            bootstrap_servers=normalize_broker(settings.KAFKA_BROKER),
             group_id=settings.CONSUMER_GROUP_ID,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', 'ignore')), # Handle potential decode errors gracefully
             auto_offset_reset='earliest', # Process from beginning for reliable local testing
             enable_auto_commit=False, # CRITICAL: Use manual commits
             consumer_timeout_ms=1000, # Timeout for poll() to allow checking shutdown flag
-            api_version=(3, 3, 1) # Explicitly set version
+            api_version=(3, 3, 1), # Explicitly set version
+            **security,
         )
         log.info("Kafka consumer initialized successfully.")
         # Log assigned partitions (optional, may take a moment after init)
